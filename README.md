@@ -37,7 +37,7 @@ Delivery is £4.95, or free from £75.
 - **Honest claims only:** no recycled-content, carbon or lifetime claims.
 
 ### 3. The 3D experience
-- **Live three.js products composited into a still image of a room.** The camera is solved from the image with OpenCV (3.4 px error) so the 3D and the photo line up.
+- **Live three.js products composited into a still image of a room.** The camera is solved from the image with OpenCV (3.4 px error) so the 3D and the image line up.
 - **Lit by an HDRI of a room,** with contact shadows and an invisible desk that hides what should be hidden.
 - **Scrolling is a working day,** from 08:55 to 18:00. The mat unrolls, the stand opens, the cables clip in, and in the evening everything is put away.
 - **The products are real mechanisms:** the stand's scissor hinge, the mat's roll, the clips' channels. The fold control's ruler ticks sit where the stand actually reaches each height.
