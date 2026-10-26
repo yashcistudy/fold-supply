@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Fold in 3D</title>
+<style>
+:root{
+  --paper:#F6F4EF; --ink:#161616; --mute:#5B5B5B; --line:#E2DED6; --panel:#FFFFFF; --focus:#0A5CD6;
+  --note:#FFFDF8; --note-ink:#161616; --note-mute:#5B5B5B; --note-line:#E6E1D7;
+  --ok:#1E7A3C;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --paper:#151515; --ink:#ECECEC; --mute:#A8A8A8; --line:#333; --panel:#1F1F1F; --focus:#7AB0FF; }
+}
+:root[data-theme="dark"]{ --paper:#151515; --ink:#ECECEC; --mute:#A8A8A8; --line:#333; --panel:#1F1F1F; --focus:#7AB0FF; }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+html.locked,html.locked body{overflow:hidden}
+:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+button{font:inherit;color:inherit}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:fixed;left:12px;top:-80px;z-index:90;background:#fff;color:#161616;padding:10px 14px;border-radius:8px;font-weight:600;text-decoration:none}
+.skip:focus{top:12px}
+
+/* ---------- stage ---------- */
+#gl{position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0;background:#d9d2c7;touch-action:pan-y}
+html.pv-on #gl{touch-action:none;cursor:grab}
+html.pv-on #gl.dragging{cursor:grabbing}
+#gl.hot{cursor:pointer}
+.vignette{position:fixed;inset:0;z-index:1;pointer-events:none;background:radial-gradient(120% 90% at 50% 45%,rgba(0,0,0,0) 55%,rgba(20,12,6,.28) 100%)}
+#ui{position:fixed;inset:0;z-index:5;pointer-events:none;transition:opacity .3s}
+#ui.gone{opacity:0;visibility:hidden}
+#ui > *{pointer-events:auto}
+svg#dims{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:visible}
+svg#dims text{font:600 13px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.62);stroke-width:3.5px;stroke-linejoin:round}
+.chips{position:fixed;top:14px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:none;z-index:6}
+.chip{pointer-events:auto;background:rgba(22,20,18,.66);color:#fff;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:0}
+.chips .right{display:flex;gap:8px}
+.clock b{font-size:18px;font-variant-numeric:tabular-nums;letter-spacing:.04em;margin-left:6px}
+button.chip{cursor:pointer;min-height:36px}
+
+/* paper note */
+.note{position:fixed;width:380px;background:var(--note);color:var(--note-ink);border-radius:4px;padding:18px 22px 20px;box-shadow:0 1px 0 rgba(0,0,0,.05),0 14px 34px rgba(20,12,6,.32);transform-origin:50% 0;z-index:7}
+.note::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,0,0,.08),transparent)}
+.note.unfold{animation:unfold .55s cubic-bezier(.2,.8,.2,1)}
+@keyframes unfold{from{transform:perspective(900px) rotateX(-78deg);opacity:0}to{transform:none;opacity:1}}
+.steps{list-style:none;display:flex;gap:5px;margin:0 0 12px;padding:0}
+.steps li{flex:1}
+.steps button{display:block;width:100%;height:22px;padding:0;border:0;background:none;cursor:pointer;position:relative}
+.steps button::after{content:"";position:absolute;left:0;right:0;top:9px;height:3px;border-radius:2px;background:#DDD8CE}
+.steps button.done::after{background:#9A958C}
+.steps button[aria-current="step"]::after{background:#161616}
+.eyebrow{margin:0 0 6px;font-size:12.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--note-mute)}
+.note h1{margin:0 0 10px;font-size:38px;line-height:1.04;letter-spacing:-.015em}
+.note h2{margin:0 0 8px;font-size:27px;line-height:1.1;letter-spacing:-.01em}
+.note p{margin:0}
+.note .hint{margin-top:12px;font-size:14px;color:var(--note-mute)}
+.note .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.btn{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid #161616;background:#161616;color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+.btn.ghost{background:transparent;color:#161616}
+.price-row{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-top:10px;font-variant-numeric:tabular-nums}
+.price-row b{font-size:24px}
+.leader{stroke:#FFFDF8;stroke-width:1.5}
+
+/* pins */
+.pin{position:fixed;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:0;border:0;background:none;padding:0;cursor:pointer;transition:opacity .25s}
+.pin span{background:var(--note);color:#161616;font-weight:700;font-size:14px;padding:8px 13px;border-radius:999px;box-shadow:0 6px 18px rgba(20,12,6,.3);white-space:nowrap}
+.pin i{display:block;width:1.5px;height:22px;background:#FFFDF8;box-shadow:0 0 3px rgba(0,0,0,.4)}
+.pin em{display:block;width:10px;height:10px;border-radius:50%;background:#FFFDF8;box-shadow:0 0 0 4px rgba(255,253,248,.35),0 1px 4px rgba(0,0,0,.4);margin-top:-5px;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 9px rgba(255,253,248,0),0 1px 4px rgba(0,0,0,.4)}}
+.pin.hide{opacity:0;pointer-events:none}
+.pin:hover span,.pin:focus-visible span{background:#161616;color:#fff}
+
+/* ---------- product view ---------- */
+#pv{position:fixed;inset:0;z-index:20;pointer-events:none}
+#pv[hidden]{display:none}
+#pv > *{pointer-events:auto}
+.pv-back{position:fixed;top:14px;left:14px;z-index:22}
+.pv-hint{position:fixed;left:16px;bottom:16px;background:rgba(22,20,18,.66);color:#fff;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);pointer-events:none}
+.pv-panel{position:fixed;top:16px;right:16px;bottom:16px;width:420px;background:var(--note);color:#161616;border-radius:6px;box-shadow:0 18px 50px rgba(20,12,6,.35);overflow:auto;overscroll-behavior:contain;padding:26px 28px 32px;transform-origin:100% 50%}
+.pv-panel.unfold{animation:unfoldR .6s cubic-bezier(.2,.8,.2,1)}
+@keyframes unfoldR{from{transform:perspective(1200px) rotateY(-70deg);opacity:0}to{transform:none;opacity:1}}
+.pv-panel h2{font-size:34px;line-height:1.05;margin:0 0 10px;letter-spacing:-.015em}
+.pv-panel h3{font-size:13px;letter-spacing:.07em;text-transform:uppercase;margin:26px 0 8px;color:#5B5B5B}
+.pv-panel p{margin:0 0 10px}
+.pv-panel .lead{font-size:17px}
+.priceline{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin:0 0 12px;font-variant-numeric:tabular-nums}
+.priceline b{font-size:28px}
+.stock{color:var(--ok);font-weight:600;font-size:15px}
+.stock::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:6px;vertical-align:1px}
+.ctrl{border:1px solid #E6E1D7;border-radius:8px;padding:14px 16px;margin:16px 0}
+.ctrl-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.ctrl label,.ctrl .lbl{font-weight:700;font-size:15px}
+.ctrl output{font-variant-numeric:tabular-nums;font-weight:700;font-size:19px}
+.ctrl input[type=range]{width:100%;height:44px;margin:0;accent-color:#161616}
+.ends{display:flex;justify-content:space-between;font-size:13px;color:#5B5B5B;margin-top:-8px}
+.seg{display:flex;gap:8px;margin-top:10px}
+.seg button,.views button{min-height:40px;padding:0 14px;border-radius:999px;border:1px solid #CFC9BE;background:#fff;font-weight:600;font-size:14px;cursor:pointer;color:#161616}
+.seg button[aria-pressed="true"],.views button[aria-pressed="true"]{background:#161616;border-color:#161616;color:#fff}
+.views{display:flex;flex-wrap:wrap;gap:8px}
+.add{width:100%;min-height:52px;font-size:16px;margin-top:6px}
+.small{font-size:14px;color:#5B5B5B}
+.thumbs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.thumbs button{padding:0;border:0;border-radius:6px;overflow:hidden;cursor:pointer;aspect-ratio:1/1;background:#eee}
+.thumbs img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s}
+.thumbs button:hover img{transform:scale(1.05)}
+dl.specs{margin:0;display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 14px;font-size:15px}
+dl.specs dt{color:#5B5B5B}
+dl.specs dd{margin:0;font-variant-numeric:tabular-nums}
+.related{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.related button{text-align:left;min-height:48px;border:1px solid #CFC9BE;background:#fff;border-radius:8px;padding:10px 14px;font-weight:600;cursor:pointer;color:#161616}
+
+/* lightbox */
+#lb{position:fixed;inset:0;z-index:40;background:rgba(14,12,10,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:56px 16px 24px}
+#lb[hidden]{display:none}
+#lb img{max-width:min(92vw,1100px);max-height:calc(100vh - 170px);object-fit:contain;border-radius:4px;display:block}
+#lb p{color:#eee;margin:14px 0 0;text-align:center;max-width:60ch}
+#lb .lb-ctrl{display:flex;gap:10px;margin-top:14px}
+#lb .lb-close{position:fixed;top:14px;right:14px}
+#lb .btn{background:#fff;color:#161616;border-color:#fff}
+
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;z-index:50;background:#161616;color:#fff;padding:12px 18px;border-radius:10px;font-size:15px;font-weight:600;transition:all .3s;pointer-events:none;max-width:calc(100vw - 32px)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* loader + fallback */
+#loader{position:fixed;inset:0;z-index:80;background:#E9E3D9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#161616;transition:opacity .5s}
+#loader.done{opacity:0;pointer-events:none}
+#loader .bar{width:220px;height:3px;background:#D6CFC3;border-radius:2px;overflow:hidden}
+#loader .bar i{display:block;height:100%;width:100%;background:#161616;transform:scaleX(0);transform-origin:0 50%;transition:transform .2s}
+#fallback{position:fixed;inset:0;z-index:85;background:#E9E3D9;color:#161616;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+#fallback img{width:min(520px,80vw);border-radius:6px}
+
+/* scroll + footer */
+#track{position:relative;height:960vh;z-index:2;pointer-events:none}
+footer.about{position:relative;z-index:10;background:var(--paper);color:var(--ink);padding:72px 24px 96px}
+footer.about > div{max-width:980px;margin:0 auto}
+footer.about h2{font-size:clamp(26px,3vw,36px);line-height:1.1;margin:0 0 14px}
+footer.about ul{padding-left:20px;color:var(--mute);margin:0}
+footer.about li{margin:8px 0}
+footer.about li b{color:var(--ink)}
+
+@media (max-width:760px){
+  .note{left:10px !important;right:10px;width:auto;bottom:10px;top:auto !important;padding:14px 16px 16px;max-height:44vh;overflow:auto}
+  .note h1{font-size:28px}
+  .note h2{font-size:22px}
+  .steps{margin-bottom:8px}
+  .chip{font-size:12px;padding:6px 11px}
+  .chip .long{display:none}
+  .clock b{font-size:15px}
+  .pv-panel{top:auto;left:0;right:0;bottom:0;width:auto;height:56vh;border-radius:16px 16px 0 0;padding:10px 18px 28px;transform-origin:50% 100%}
+  .pv-panel::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:#D6CFC3;margin:0 auto 12px}
+  .pv-panel.unfold{animation:unfoldB .55s cubic-bezier(.2,.8,.2,1)}
+  @keyframes unfoldB{from{transform:perspective(1200px) rotateX(60deg);opacity:0}to{transform:none;opacity:1}}
+  .pv-panel h2{font-size:28px}
+  .pv-hint{bottom:auto;top:62px;left:14px;font-size:12px}
+  .pin span{font-size:13px;padding:7px 11px}
+}
+@media (prefers-reduced-motion: reduce){
+  .note.unfold,.pv-panel.unfold,.pv-panel.unfold{animation:none}
+  .pin em{animation:none}
+}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<a class="skip" href="#about">Skip the 3D story</a>
+<canvas id="gl" aria-label="A 3D desk. A felt mat, a folding laptop stand and two cable clips are set out on it as you scroll." role="img"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<div id="loader" role="status"><p style="margin:0;font-weight:600">Setting out the desk…</p><div class="bar"><i id="loadBar"></i></div></div>
+<div id="fallback"><img src="assets/photos/set-flatlay-th.webp" alt="The Desk Set laid flat: mat, stand and two clips." width="320" height="320"><p><b>This prototype needs WebGL to show the 3D desk.</b><br>Try a recent version of Chrome, Safari, Edge or Firefox.</p></div>
+
+<div id="ui">
+  <svg id="dims" aria-hidden="true"></svg>
+  <div class="chips">
+    <span class="chip">Prototype<span class="long"> · real-time 3D · no branding yet</span></span>
+    <div class="right">
+      <span class="chip clock" aria-hidden="true">On the desk<b id="clock">08:55</b></span>
+      <button class="chip" id="bagChip" type="button" aria-label="Bag, 0 items">Bag · 0</button>
+    </div>
+  </div>
+  <div id="pins"></div>
+  <section class="note" id="note" aria-live="polite"></section>
+</div>
+
+<div id="track" aria-hidden="true"></div>
+
+<footer class="about" id="about">
+  <div>
+    <h2>About this prototype</h2>
+    <ul>
+      <li><b>Real-time 3D, built to the brief’s numbers.</b> The mat is 700 × 350 × 3 mm with 12 mm corners. The stand opens to a 110 mm rear height and folds to a 22 mm envelope. Each clip is 44 × 20 × 12 mm with three channels.</li>
+      <li><b>The fold is a working mechanism, not a video.</b> The stand’s scissor legs are solved live, so every angle is the same object.</li>
+      <li><b>Every motion is a real product action.</b> The mat arrives rolled the way it ships and unrolls, and the stand arrives folded and opens. At 18:00 they reverse.</li>
+      <li><b>Materials and photos.</b> Felt, oak, aluminium, silicone and clip textures are generated tileable maps. The product photos in each page are AI-generated concept renders, labelled as photos.</li>
+      <li><b>No logo, colours or brand type yet.</b> It’s neutral on purpose, so the experience is judged on its own.</li>
+      <li><b>Reduced motion.</b> The camera cuts between set views instead of flying, and the product pages open without animation.</li>
+    </ul>
+  </div>
+</footer>
+
+<div id="pv" role="dialog" aria-modal="true" aria-labelledby="pvName" hidden>
+  <button class="chip pv-back" id="pvBack" type="button">← Back to the desk</button>
+  <div class="pv-hint" id="pvHint" aria-hidden="true">Drag to turn · scroll to zoom · <span id="pvViewName"></span></div>
+  <aside class="pv-panel" id="pvPanel"></aside>
+</div>
+
+<div id="lb" role="dialog" aria-modal="true" aria-label="Photo" hidden>
+  <button class="btn lb-close" id="lbClose" type="button">Close</button>
+  <img id="lbImg" src="" alt="">
+  <p id="lbCap"></p>
+  <div class="lb-ctrl"><button class="btn" id="lbPrev" type="button">← Previous</button><button class="btn" id="lbNext" type="button">Next →</button></div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SNAP = new URLSearchParams(location.search).has('snap'); // test hook: settle instantly
+const $ = s => document.querySelector(s);
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const ramp=(p,a,b)=>clamp((p-a)/(b-a),0,1);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const D2R=Math.PI/180;
+const mobile=()=>innerWidth<=760;
+
+/* =========================================================
+   Renderer, scene, light
+   ========================================================= */
+const canvas=$('#gl');
+let renderer;
+try{
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
+}catch(e){
+  $('#loader').style.display='none'; $('#fallback').style.display='flex'; throw e;
+}
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+THREE.Cache.enabled=true;
+
+const scene=new THREE.Scene();
+const BG_DAY=new THREE.Color('#ddd5ca'), BG_EVE=new THREE.Color('#1b1918');
+scene.background=BG_DAY.clone();
+const camera=new THREE.PerspectiveCamera(32,1,4,20000);
+const pmrem=new THREE.PMREMGenerator(renderer);
+scene.environment=pmrem.fromScene(new RoomEnvironment(renderer),0.04).texture;
+
+const hemi=new THREE.HemisphereLight(0xfff3e4,0x3b2c1e,0.55); scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff0dc,2.1);
+sun.castShadow=true;
+sun.shadow.mapSize.set(mobile()?1024:2048, mobile()?1024:2048);
+Object.assign(sun.shadow.camera,{left:-850,right:850,top:850,bottom:-850,near:200,far:7000});
+sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.8;
+scene.add(sun); scene.add(sun.target);
+const lamp=new THREE.PointLight(0xffa25a,0,0,2); lamp.position.set(-720,560,-560); scene.add(lamp);
+
+/* textures */
+const manager=new THREE.LoadingManager();
+manager.onProgress=(u,l,t)=>{$('#loadBar').style.transform=`scaleX(${l/t})`;};
+const tl=new THREE.TextureLoader(manager);
+const maxAniso=renderer.capabilities.getMaxAnisotropy();
+function tex(name,rx,ry,linear){
+  const t=tl.load('assets/tex/'+name);
+  t.colorSpace=linear?THREE.NoColorSpace:THREE.SRGBColorSpace; t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(rx,ry); t.anisotropy=Math.min(8,maxAniso);
+  return t;
+}
+
+/* =========================================================
+   Desk and wall
+   ========================================================= */
+const DESK_W=4400, DESK_D=3000;
+const deskMat=new THREE.MeshStandardMaterial({map:tex('oak.jpg',DESK_W/600,DESK_D/600),bumpMap:tex('oak-bump.jpg',DESK_W/600,DESK_D/600,true),bumpScale:.35,roughness:.58,metalness:0,envMapIntensity:.3});
+const desk=new THREE.Mesh(new THREE.PlaneGeometry(DESK_W,DESK_D),deskMat);
+desk.rotation.x=-Math.PI/2; desk.receiveShadow=true; scene.add(desk);
+const wall=new THREE.Mesh(new THREE.PlaneGeometry(DESK_W,2200),new THREE.MeshStandardMaterial({color:0xe7e0d5,roughness:1,envMapIntensity:.2}));
+wall.position.set(0,1100,-DESK_D/2); wall.receiveShadow=true; scene.add(wall);
+
+const PICK=[];
+function mk(geo,mat,prod){ const m=new THREE.Mesh(geo,mat); m.castShadow=true; m.receiveShadow=true; if(prod){m.userData.prod=prod; PICK.push(m);} return m; }
+
+/* =========================================================
+   Mat: 700 x 350 x 3 mm felt, 12 mm corners, rolls around its 350 mm edge
+   ========================================================= */
+const MAT={w:700,d:350,r:12,t:3};
+const ROLL={a:13,b:3.5/(2*Math.PI)};
+function maskShader(mat){
+  mat.onBeforeCompile=sh=>{
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec2 aFlat;\nvarying vec2 vFlat;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvFlat=aFlat;');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vFlat;')
+      .replace('void main() {','void main() {\n  vec2 q=abs(vFlat)-vec2(338.0,163.0); float dd=length(max(q,0.0))+min(max(q.x,q.y),0.0)-12.0; if(dd>0.0) discard;');
+  };
+}
+const feltMat=new THREE.MeshStandardMaterial({map:tex('felt.jpg',7,3.5),bumpMap:tex('felt-bump.jpg',7,3.5,true),bumpScale:1.2,roughness:1,metalness:0,envMapIntensity:.2,side:THREE.DoubleSide});
+maskShader(feltMat);
+const feltDepth=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking}); maskShader(feltDepth);
+const feltEdgeMat=new THREE.MeshStandardMaterial({map:tex('felt.jpg',1,1),bumpMap:tex('felt-bump.jpg',1,1,true),bumpScale:1.2,roughness:1,envMapIntensity:.2,side:THREE.DoubleSide});
+
+const matGroup=new THREE.Group(); scene.add(matGroup);
+function gridGeo(){
+  const g=new THREE.PlaneGeometry(MAT.w,MAT.d,240,6); g.rotateX(-Math.PI/2);
+  const p=g.attributes.position, base=new Float32Array(p.count*2);
+  for(let i=0;i<p.count;i++){ base[2*i]=p.getX(i); base[2*i+1]=p.getZ(i); }
+  g.setAttribute('aFlat',new THREE.BufferAttribute(base.slice(),2));
+  g.userData.base=base; return g;
+}
+const matTop=mk(gridGeo(),feltMat,'mat'); matTop.customDepthMaterial=feltDepth; matTop.userData.n=1.5;
+const matBot=mk(gridGeo(),feltMat,'mat'); matBot.customDepthMaterial=feltDepth; matBot.userData.n=-1.5; matBot.castShadow=false;
+function perimeter(){
+  const pts=[],hw=MAT.w/2,hd=MAT.d/2,r=MAT.r,step=3;
+  const seg=(x0,z0,x1,z1)=>{const n=Math.max(1,Math.round(Math.hypot(x1-x0,z1-z0)/step)); for(let i=0;i<n;i++) pts.push([x0+(x1-x0)*i/n,z0+(z1-z0)*i/n]);};
+  const arc=(cx,cz,a0,a1)=>{for(let i=0;i<8;i++){const a=a0+(a1-a0)*i/8; pts.push([cx+r*Math.cos(a),cz+r*Math.sin(a)]);}};
+  seg(-hw+r,hd,hw-r,hd); arc(hw-r,hd-r,Math.PI/2,0); seg(hw,hd-r,hw,-hd+r); arc(hw-r,-hd+r,0,-Math.PI/2);
+  seg(hw-r,-hd,-hw+r,-hd); arc(-hw+r,-hd+r,-Math.PI/2,-Math.PI); seg(-hw,-hd+r,-hw,hd-r); arc(-hw+r,hd-r,Math.PI,Math.PI/2);
+  return pts;
+}
+const edgeGeo=(()=>{
+  const P=perimeter(), N=P.length, pos=new Float32Array(N*2*3), uv=new Float32Array(N*2*2), base=new Float32Array(N*2*2), nn=new Float32Array(N*2), idx=[];
+  let L=0;
+  for(let i=0;i<N;i++){
+    if(i>0) L+=Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]);
+    for(let k=0;k<2;k++){ const v=2*i+k; base[2*v]=P[i][0]; base[2*v+1]=P[i][1]; nn[v]=k?-1.5:1.5; uv[2*v]=L/100; uv[2*v+1]=k?0:.03; }
+    const j=(i+1)%N, a=2*i,b=2*i+1,c=2*j,d=2*j+1; idx.push(a,b,c,b,d,c);
+  }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); g.setAttribute('uv',new THREE.BufferAttribute(uv,2)); g.setIndex(idx);
+  g.userData.base=base; g.userData.nn=nn; return g;
+})();
+const matEdge=mk(edgeGeo,feltEdgeMat,'mat'); matEdge.castShadow=false;
+matGroup.add(matTop,matBot,matEdge);
+
+const V=new THREE.Vector3();
+function rollPos(x,z,n,u,out){
+  const Lr=u*MAT.w, Xc=MAT.w/2-Lr;
+  if(Lr<0.01||x<=Xc){ out.set(x,1.5+n,z); return out; }
+  const a=ROLL.a,b=ROLL.b;
+  const thT=(-a+Math.sqrt(a*a+2*b*Lr))/b, rT=a+b*thT;
+  const sig=Lr-(x-Xc);
+  const th=(-a+Math.sqrt(a*a+2*b*Math.max(0,sig)))/b;
+  const rr=a+b*th-n, al=-Math.PI/2+(thT-th);
+  out.set(Xc+rr*Math.cos(al),1.5+rT+rr*Math.sin(al),z); return out;
+}
+let matUApplied=-1;
+function setMatRoll(u){
+  if(Math.abs(u-matUApplied)<1e-4) return; matUApplied=u;
+  for(const m of [matTop,matBot]){
+    const g=m.geometry,p=g.attributes.position,base=g.userData.base,n=m.userData.n;
+    for(let i=0;i<p.count;i++){ rollPos(base[2*i],base[2*i+1],n,u,V); p.setXYZ(i,V.x,V.y,V.z); }
+    p.needsUpdate=true; g.computeVertexNormals(); g.computeBoundingSphere(); g.computeBoundingBox();
+  }
+  const g=matEdge.geometry,p=g.attributes.position,base=g.userData.base,nn=g.userData.nn;
+  for(let i=0;i<p.count;i++){ rollPos(base[2*i],base[2*i+1],nn[i],u,V); p.setXYZ(i,V.x,V.y,V.z); }
+  p.needsUpdate=true; g.computeVertexNormals(); g.computeBoundingSphere();
+}
+function matRollCentre(u){ // world-ish centre of the roll (group local)
+  const Lr=u*MAT.w, a=ROLL.a,b=ROLL.b, thT=(-a+Math.sqrt(a*a+2*b*Lr))/b, rT=a+b*thT;
+  return new THREE.Vector3(MAT.w/2-Lr,1.5+rT,0);
+}
+
+/* =========================================================
+   Stand: aluminium rails, silicone pads, scissor legs, crossbars
+   rear height 110 mm open, 22 mm envelope folded
+   ========================================================= */
+const ALU=new THREE.MeshStandardMaterial({map:tex('alu.jpg',2,2),bumpMap:tex('alu-bump.jpg',2,2,true),bumpScale:.2,color:0xc4c7cb,metalness:.85,roughness:.42,envMapIntensity:.8});
+const PAD=new THREE.MeshStandardMaterial({map:tex('pad.jpg',1,6),roughness:.85,metalness:0,envMapIntensity:.3});
+const RUB=new THREE.MeshStandardMaterial({color:0x1e1f21,roughness:.72,envMapIntensity:.3});
+const STEEL=new THREE.MeshStandardMaterial({color:0xf0f0f0,metalness:1,roughness:.22,envMapIntensity:1.3});
+const ST={L:250,Fh:13,l1:150,l2:170,s1:200,s2:70,g:5,front:125,x0:164,z0:0};
+const thetaMax=(()=>{ let lo=0,hi=.6; for(let i=0;i<40;i++){ const m=(lo+hi)/2; (ST.Fh+ST.L*Math.sin(m)+3*Math.cos(m)<110)?lo=m:hi=m; } return lo; })();
+const rearH=th=>ST.Fh+ST.L*Math.sin(th)+3*Math.cos(th);
+const stand=new THREE.Group(); scene.add(stand);
+const rails=[];
+for(const sx of [-92,92]){
+  const r={sx};
+  r.plate=mk(new RoundedBoxGeometry(36,6,250,2,1.5),ALU,'stand');
+  const pad=mk(new THREE.BoxGeometry(24,1.2,196),PAD,'stand'); pad.position.set(0,3.4,8); r.plate.add(pad);
+  const lip=mk(new RoundedBoxGeometry(36,12,9,2,2.5),RUB,'stand'); lip.position.set(0,3,-125+4.5); r.plate.add(lip);
+  r.leg1=mk(new RoundedBoxGeometry(10,6,ST.l1,2,1.5),ALU,'stand');
+  r.leg2=mk(new RoundedBoxGeometry(10,6,ST.l2,2,1.5),ALU,'stand');
+  r.f1=mk(new RoundedBoxGeometry(12,5,18,2,1.5),RUB,'stand');
+  r.f2=mk(new RoundedBoxGeometry(12,5,18,2,1.5),RUB,'stand');
+  r.block=mk(new RoundedBoxGeometry(36,13,18,2,2),ALU,'stand');
+  r.pins=[0,1,2,3].map(()=>{ const c=mk(new THREE.CylinderGeometry(5.2,5.2,40,24),STEEL,'stand'); c.rotation.z=Math.PI/2; return c; });
+  stand.add(r.plate,r.leg1,r.leg2,r.f1,r.f2,r.block,...r.pins);
+  rails.push(r);
+}
+const bar1=mk(new THREE.CylinderGeometry(5,5,168,20),ALU,'stand'); bar1.rotation.z=Math.PI/2;
+const bar2=mk(new THREE.CylinderGeometry(4.5,4.5,160,20),ALU,'stand'); bar2.rotation.z=Math.PI/2;
+stand.add(bar1,bar2);
+const ZAX=new THREE.Vector3(0,0,1), tv=new THREE.Vector3();
+function seg(m,x,A,B){
+  m.position.set(x,(A[1]+B[1])/2,ST.front-(A[0]+B[0])/2);
+  tv.set(0,B[1]-A[1],-(B[0]-A[0])).normalize(); m.quaternion.setFromUnitVectors(ZAX,tv);
+}
+function inter(a,b,p,q){ const d=(b[0]-a[0])*(q[1]-p[1])-(b[1]-a[1])*(q[0]-p[0]); if(Math.abs(d)<1e-6) return [(a[0]+b[0])/2,(a[1]+b[1])/2];
+  const u=((p[0]-a[0])*(q[1]-p[1])-(p[1]-a[1])*(q[0]-p[0]))/d; return [a[0]+u*(b[0]-a[0]),a[1]+u*(b[1]-a[1])]; }
+let standKin=null, openApplied=-1;
+function setStandOpen(o){
+  if(Math.abs(o-openApplied)<1e-4) return; openApplied=o;
+  const th=o*thetaMax, c=Math.cos(th), s=Math.sin(th), nx=-s, ny=c;
+  const pt=(d,off)=>[d*c+off*nx, ST.Fh+d*s+off*ny];
+  const F=[0,ST.Fh], R=pt(ST.L,0), P1=pt(ST.s1,-6), P2=pt(ST.s2,-6);
+  const G1=[P1[0]-Math.sqrt(ST.l1**2-(P1[1]-ST.g)**2),ST.g];
+  const G2=[P2[0]+Math.sqrt(ST.l2**2-(P2[1]-ST.g)**2),ST.g];
+  const X=inter(G1,P1,P2,G2);
+  for(const r of rails){
+    const sg=Math.sign(r.sx);
+    seg(r.plate,r.sx,F,R);
+    seg(r.leg1,r.sx+10*sg,G1,P1);
+    seg(r.leg2,r.sx-10*sg,P2,G2);
+    r.f1.position.set(r.sx+10*sg,2.5,ST.front-G1[0]);
+    r.f2.position.set(r.sx-10*sg,2.5,ST.front-G2[0]);
+    r.block.position.set(r.sx,6.5,ST.front);
+    [F,P1,P2,X].forEach((q,i)=>r.pins[i].position.set(r.sx,q[1],ST.front-q[0]));
+  }
+  const B1=pt(160,-8); bar1.position.set(0,B1[1],ST.front-B1[0]);
+  const B2=[G2[0]+(P2[0]-G2[0])*.12,G2[1]+(P2[1]-G2[1])*.12]; bar2.position.set(0,B2[1],ST.front-B2[0]);
+  standKin={th,X,R,h:rearH(th)};
+}
+
+/* =========================================================
+   Clips: 44 x 20 x 12 mm silicone, three top channels; cables 3-5 mm
+   ========================================================= */
+const CLIP=new THREE.MeshStandardMaterial({map:tex('clip.jpg',1/30,1/30),roughness:.8,metalness:0,envMapIntensity:.35});
+CLIP.color.setScalar(1.45);
+feltMat.color.setScalar(1.3); feltEdgeMat.color.setScalar(1.3);
+const CABLE=new THREE.MeshStandardMaterial({color:0x1b1c1e,roughness:.45,envMapIntensity:.5});
+const CABLE2=new THREE.MeshStandardMaterial({color:0xe8e7e3,roughness:.5,envMapIntensity:.5});
+const CABLE3=new THREE.MeshStandardMaterial({color:0x7d8186,roughness:.5,envMapIntensity:.5});
+function clipGeo(){
+  const W=42.4,H=10.4,R=4.2,r=1.6,hw=2.3,rc=3.3,vc=4.6,a=Math.acos(hw/rc),s=new THREE.Shape();
+  s.moveTo(-W/2+r,0); s.lineTo(W/2-r,0); s.absarc(W/2-r,r,r,-Math.PI/2,0,false); s.lineTo(W/2,H-R); s.absarc(W/2-R,H-R,R,0,Math.PI/2,false);
+  for(const xc of [13,0,-13]){ s.lineTo(xc+hw,H); s.lineTo(xc+hw,vc+rc*Math.sin(a)); s.absarc(xc,vc,rc,a,Math.PI-a,true); s.lineTo(xc-hw,H); }
+  s.lineTo(-W/2+R,H); s.absarc(-W/2+R,H-R,R,Math.PI/2,Math.PI,false); s.lineTo(-W/2,r); s.absarc(-W/2+r,r,r,Math.PI,1.5*Math.PI,false);
+  const g=new THREE.ExtrudeGeometry(s,{depth:18,bevelEnabled:true,bevelThickness:1,bevelSize:.8,bevelSegments:3,curveSegments:12});
+  g.translate(0,.8,-9); return g;
+}
+const CLIPX=[-274,-222], CLIPZ=107;
+const clipsRoot=new THREE.Group(); scene.add(clipsRoot);
+const clipsArrive=new THREE.Group(); clipsRoot.add(clipsArrive);
+const cg=clipGeo();
+const clipMeshes=CLIPX.map(x=>{ const m=mk(cg,CLIP,'clips'); m.position.set(x,3,CLIPZ); m.rotation.y=Math.PI/2; clipsArrive.add(m); return m; });
+const BASE=[[-2300,2.4,150],[-1300,2.4,128],[-700,2.4,112],[-420,2.4,108],[-372,4.2,107],[-345,5.4,107],[-302,7.4,107],[-268,8.4,107],[-228,8.4,107],[-198,7.6,107],[-150,5.6,108],[-40,5.4,118],[120,5.4,138],[300,5.4,149],[352,3.6,151],[400,2.4,152],[800,2.4,162],[1400,2.4,136],[2300,2.4,160]];
+function cableGeo(dz,far){
+  const pts=BASE.map(([x,y,z])=>{ const near=Math.exp(-Math.pow((x+248)/240,2)); return new THREE.Vector3(x,y,z+dz*near+far*(1-near)); });
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts,false,'catmullrom',.35),900,2.4,12,false);
+}
+const cable1=mk(cableGeo(0,0),CABLE,'clips'); clipsRoot.add(cable1);
+const cable2=mk(cableGeo(-13,-70),CABLE2,'clips'); clipsRoot.add(cable2);
+const cable3=mk(cableGeo(13,64),CABLE3,'clips'); clipsRoot.add(cable3);
+function draw(m,t){ const n=m.geometry.index.count, k=Math.floor(n*t/72)*72; m.geometry.setDrawRange(0,k); m.visible=k>0; }
+
+/* =========================================================
+   Products data (copy from the brief, honest limits included)
+   ========================================================= */
+const DELIVERY='Delivery £4.95, free from £75. Dispatched in 1–2 working days, then 2–4 working days to arrive. 30-day change-of-mind returns.';
+const P={
+  mat:{name:'Desk Mat',finish:'Charcoal felt',price:28,unit:'1 mat',
+    lead:'A charcoal felt surface that gives everyday desk items a defined place. Check the 700 × 350 mm footprint against your desk.',
+    views:[['Three-quarter',{W:900,polar:52,az:-26}],['From above',{W:860,polar:4,az:0}],['Cut edge',{W:150,polar:62,az:-34,at:'corner'}],['Low side',{W:820,polar:83,az:0}]],
+    specs:[['Size','700 × 350 × 3 mm'],['Corners','About 12 mm radius'],['Material','Compressed polyester felt. Clean-cut, unstitched edges. No rubber backing.'],['Weight','310 g'],['Arrives','Rolled around its 350 mm edge, in a kraft tube'],['Included','1 mat']],
+    limits:'Not waterproof, heatproof or machine washable. It can shift on very smooth desks and may pill with wear. Not every mouse sensor tracks well on felt.',
+    care:'Lift loose bits with a soft brush. Blot spills straight away, then spot clean with a lightly damp cloth and mild soap. Dry flat fully before use. Don’t soak it, tumble dry it or put hot pans on it.',
+    photos:[['mat-edge','Close-up of the charcoal felt and its clean-cut edge.'],['mat-corner','The mat with one corner lifted, showing a single 3 mm layer.'],['mat-spill','A hand blotting a small spill on the mat with a folded cloth.'],['mat-rolled','The mat rolled up, the way it ships.']],
+    related:['clips','set']},
+  stand:{name:'Folding Laptop Stand',finish:'Natural silver aluminium',price:49,unit:'1 stand',
+    lead:'A silver aluminium stand that raises a laptop above the desk and folds down for storage. Check the footprint and support contact before choosing it.',
+    views:[['Three-quarter',{W:470,polar:60,az:-38}],['Side',{W:430,polar:84,az:-90}],['Rear',{W:470,polar:56,az:150}],['From above',{W:430,polar:4,az:0}],['Hinge',{W:120,polar:80,az:-90,at:'hinge'}]],
+    specs:[['Open','250 mm deep × 220 mm wide'],['Rear height','110 mm'],['Folded','250 × 220 × 22 mm'],['Material','Matte aluminium rails, dark silicone contact pads, hinged scissor supports and crossbars'],['Weight','620 g'],['Not included','Laptop, keyboard or mouse']],
+    limits:'Check that your laptop’s underside sits on both silicone pads before you buy. Materials and fit would be confirmed with the supplier before a real launch.',
+    care:'Wipe with a soft, dry cloth. Fold it before moving it.',
+    photos:[['stand-side','The stand open, seen from the side.'],['stand-rear','The stand open, from behind at three-quarters.'],['stand-folded','The stand folded flat.'],['stand-hinge','Close-up of a hinge pin and silicone pad.'],['stand-laptop','The stand holding a closed laptop.'],['stand-a4','The stand next to a sheet of A4 paper, to scale.']],
+    related:['mat','set']},
+  clips:{name:'Cable Clips Pair',finish:'Graphite silicone',price:9,unit:'2 clips',
+    lead:'Two graphite silicone clips, each with three channels, for grouping compatible cables on a level surface.',
+    views:[['Three-quarter',{W:150,polar:52,az:34}],['Along the cable',{W:96,polar:74,az:90}],['From above',{W:130,polar:4,az:0}],['Side',{W:140,polar:80,az:0}]],
+    specs:[['Each clip','44 × 20 × 12 mm'],['Channels','3 on top of each clip'],['Cable fit','3 to 5 mm across (prototype range, still being tested)'],['Material','Flexible silicone'],['Included','2 clips. Cables not included.']],
+    limits:'Small parts: keep them away from young children.',
+    care:'Wipe with a damp cloth and dry before use. Check that cables sit in the channels without damage.',
+    photos:[['clips-cable','One clip with a cable seated in its middle channel.'],['clips-palm','Both clips in the palm of a hand, for scale.'],['clips-top','The pair from above.']],
+    related:['mat','set']},
+  set:{name:'Desk Set',finish:'Charcoal and silver',price:76,unit:'1 mat, 1 stand, 1 clips pair',was:86,
+    lead:'The mat, the stand and the clips pair together, for £10 less than buying them separately. Delivery is free.',
+    views:[['Whole desk',{W:1250,polar:32,az:0}],['From above',{W:1150,polar:4,az:0}],['Low',{W:1100,polar:70,az:-20}]],
+    specs:[['Contains','Desk Mat, Folding Laptop Stand, Cable Clips Pair'],['Separately','£86'],['Set price','£76, you save £10'],['Not included','Laptop and cables']],
+    limits:'The set is only available when all three parts are in stock.',
+    care:'See each product for its care.',
+    photos:[['set-flatlay','The full set laid flat: mat, stand and two clips.']],
+    related:['mat','stand','clips']}
+};
+
+/* =========================================================
+   Story timeline (scroll progress 0..1)
+   ========================================================= */
+// [p, tx,ty,tz, W, Wmobile, polar, az]
+const K=[
+  [0,   0,0,0,     1500,960, 5,0],
+  [.05, 0,0,0,     1500,960, 5,0],
+  [.13, 0,0,0,     1080,800,18,0],
+  [.20, 0,0,0,     1080,800,18,0],
+  [.25, 164,30,-10, 600,540,60,-36],
+  [.35, 164,30,-10, 600,540,60,-36],
+  [.41, -248,6,107, 220,210,50,32],
+  [.47, -248,6,107, 220,210,50,32],
+  [.53, 40,0,10,    960,840,32,0],
+  [.67, 40,0,10,    960,840,32,0],
+  [.75, 0,0,0,     1320,920,24,-8],
+  [.79, 150,20,0,   900,720,46,-22],
+  [.83, 0,0,0,     1320,920,30,0],
+  [.90, 150,0,-70, 1150,1040,36,0],
+  [1,   150,0,-70, 1150,1040,36,0]
+];
+function storyCam(p){
+  let i=0; while(i<K.length-2 && p>K[i+1][0]) i++;
+  const a=K[i], b=K[i+1];
+  const t=RM ? (p-a[0] < (b[0]-a[0])/2 ? 0 : 1) : ease(ramp(p,a[0],b[0]));
+  const m=mobile(), wi=m?5:4;
+  const W=Math.exp(lerp(Math.log(a[wi]),Math.log(b[wi]),t));
+  let polar=lerp(a[6],b[6],t); if(m) polar=Math.min(polar,40);
+  return {tx:lerp(a[1],b[1],t),ty:lerp(a[2],b[2],t),tz:lerp(a[3],b[3],t),W,polar,az:lerp(a[7],b[7],t)};
+}
+function storyState(p){
+  const s={};
+  const mIn=ease(ramp(p,.05,.09)), unroll=ease(ramp(p,.09,.16)), reroll=ease(ramp(p,.82,.89));
+  s.matVis=p>.045; s.matX=lerp(-820,0,mIn); s.matU=p<.5?1-unroll:reroll;
+  const sIn=ease(ramp(p,.20,.24)), unfold=ease(ramp(p,.24,.32)), fold=ease(ramp(p,.75,.79)), away=ease(ramp(p,.79,.82));
+  s.standVis=p>.195; s.open=p<.5?unfold:1-fold;
+  s.standPos=[lerp(ST.x0+820,ST.x0,sIn)+(520-ST.x0)*away, 3*(1-away)+26*Math.sin(Math.PI*away), ST.z0-270*away];
+  const cIn=ease(ramp(p,.36,.41)), off=ease(ramp(p,.79,.82));
+  s.clipsVis=p>.355; s.clipsArriveZ=lerp(560,0,cIn); s.cable=ramp(p,.37,.45); s.clipsOff=off;
+  s.day=ramp(p,.67,.75); s.eve=ease(ramp(p,.83,.90));
+  return s;
+}
+const EXPLORE=p=>(p>=.515&&p<=.67)||p>=.905;
+const STEPS=[
+  {at:0, side:'L', html:()=>`<p class="eyebrow">08:55 · An empty desk</p><h1>Work here. Fold it away at six.</h1><p>A felt mat, a folding laptop stand and two cable clips, modelled at their real sizes. Scroll to set them out.</p><p class="hint">Scroll ↓ · or use the steps above</p>`},
+  {at:.05, side:'L', anchor:'mat', html:()=>`<p class="eyebrow">1 of 3 · Desk Mat · £28</p><h2>Somewhere soft for your hands.</h2><p>700 × 350 × 3 mm of charcoal felt. It arrives rolled, the way it ships, and lies flat on the desk. It doesn’t fold.</p>`},
+  {at:.20, side:'L', anchor:'stand', html:()=>`<p class="eyebrow">2 of 3 · Folding Laptop Stand · £49</p><h2>Opens to 110 mm. Folds to 22.</h2><p>Watch the legs: they cross and lift the back of your laptop 110 mm off the desk, then fold back into a 22 mm envelope.</p>`},
+  {at:.36, side:'R', anchor:'clips', html:()=>`<p class="eyebrow">3 of 3 · Cable Clips Pair · £9</p><h2>Three channels each.</h2><p>Two silicone clips, 44 × 20 × 12 mm. Each takes up to three cables, 3 to 5 mm across, so the charger stays where you left it.</p>`},
+  {at:.48, side:'L', html:()=>`<p class="eyebrow">09:00 · Set out</p><h2>That’s the whole desk.</h2><p>Click anything on the desk to look closer, or keep scrolling to clock off.</p><div class="price-row"><b>Desk Set £76</b><span>£86 separately · free delivery</span></div><div class="row"><button class="btn" type="button" data-open="set">See the Desk Set</button></div>`},
+  {at:.68, side:'L', anchor:'stand', html:()=>`<p class="eyebrow">17:59 · Clocking off</p><h2>Fold the stand. Roll the mat.</h2><p>The stand folds back to 22 mm and moves aside. The clips keep the cable where it is, and the mat rolls up around its short edge.</p>`},
+  {at:.90, side:'L', html:()=>`<p class="eyebrow">18:00 · Evening</p><h2>Same desk. Different evening.</h2><p>Everything is still clickable. Open the folded stand or the rolled mat to see them packed away.</p><div class="row"><button class="btn ghost" type="button" data-open="set">See the Desk Set</button></div>`}
+];
+const STEP_NAMES=['Empty desk','Desk mat','Laptop stand','Cable clips','Set out','Clocking off','Evening'];
+
+/* =========================================================
+   UI: note, steps, pins, dims
+   ========================================================= */
+const noteEl=$('#note'), dimsEl=$('#dims'), pinsEl=$('#pins'), uiEl=$('#ui');
+let stepIdx=-1;
+function stepButtons(i){
+  return `<ol class="steps" aria-label="Story steps">${STEP_NAMES.map((n,k)=>`<li><button type="button" data-step="${k}" aria-label="Go to step ${k+1}: ${n}" ${k===i?'aria-current="step"':''} class="${k<i?'done':''}"></button></li>`).join('')}</ol>`;
+}
+function setStep(i){
+  if(i===stepIdx) return; stepIdx=i;
+  noteEl.innerHTML=stepButtons(i)+STEPS[i].html();
+  if(!RM&&!SNAP){ noteEl.classList.remove('unfold'); void noteEl.offsetWidth; noteEl.classList.add('unfold'); }
+}
+noteEl.addEventListener('click',e=>{
+  const s=e.target.closest('[data-step]'); if(s){ goToP(STEPS[+s.dataset.step].at+(+s.dataset.step?.012:0)); return; }
+  const o=e.target.closest('[data-open]'); if(o) openProduct(o.dataset.open);
+});
+function goToP(p){
+  const tr=$('#track'), max=tr.offsetHeight-innerHeight;
+  scrollTo({top:tr.offsetTop+p*max,behavior:RM?'auto':'smooth'});
+}
+const pins={};
+for(const id of ['mat','stand','clips']){
+  const b=document.createElement('button'); b.type='button'; b.className='pin hide';
+  b.innerHTML=`<span>${P[id].name} · £${P[id].price}</span><i></i><em></em>`;
+  b.setAttribute('aria-label',`Open ${P[id].name}, £${P[id].price}`);
+  b.addEventListener('click',()=>openProduct(id));
+  b.addEventListener('mouseenter',()=>hover=id); b.addEventListener('mouseleave',()=>hover=null);
+  b.addEventListener('focus',()=>hover=id); b.addEventListener('blur',()=>hover=null);
+  pinsEl.appendChild(b); pins[id]=b;
+}
+const proj=new THREE.Vector3();
+function toScreen(x,y,z){ proj.set(x,y,z).project(camera); return [(proj.x+1)/2*size.w,(1-proj.y)/2*size.h,proj.z<1]; }
+function anchorOf(id){
+  if(id==='mat'){ if(matUApplied>.6){ const c=matRollCentre(matUApplied); return new THREE.Vector3(matGroup.position.x+c.x,c.y+25,c.z); } return new THREE.Vector3(matGroup.position.x-150,4,-110); }
+  if(id==='stand') return new THREE.Vector3(stand.position.x,stand.position.y+(standKin?standKin.h*.6:14)+6,stand.position.z-20);
+  if(id==='clips') return new THREE.Vector3(-248,clipsRoot.position.y+16,CLIPZ+clipsRoot.position.z+clipsArrive.position.z);
+  return new THREE.Vector3();
+}
+
+/* =========================================================
+   Camera state and product view
+   ========================================================= */
+const size={w:innerWidth,h:innerHeight};
+const cam={tx:0,ty:0,tz:0,W:1500,polar:5,az:0}; const off={x:0,y:0};
+let mode='story', pv=null; // pv: {id, view, anchor, drag:{az,polar}, zoom}
+let pTarget=0, pCur=0, hover=null;
+const ov={open:null,u:null,cables:1};
+const applied={open:0,u:1,c2:0,c3:0};
+
+function placeCamera(){
+  const w=size.w,h=size.h;
+  camera.fov = w/h<.9 ? 46 : 32;
+  const vt=Math.tan(camera.fov*D2R/2), availW=Math.max(200,w-Math.abs(off.x)*2), ht=vt*(availW/h);
+  const dist=(cam.W/2)/ht, Pp=cam.polar*D2R, A=cam.az*D2R;
+  camera.position.set(cam.tx+dist*Math.sin(Pp)*Math.sin(A), cam.ty+dist*Math.cos(Pp), cam.tz+dist*Math.sin(Pp)*Math.cos(A));
+  camera.lookAt(cam.tx,cam.ty,cam.tz);
+  camera.aspect=w/h;
+  camera.setViewOffset(w,h,off.x,off.y,w,h);
+  camera.updateProjectionMatrix();
+}
+function productCam(){
+  const v=P[pv.id].views[pv.view][1];
+  let a=pv.anchor.clone();
+  if(v.at==='corner') a=new THREE.Vector3(matGroup.position.x+322,2,150);
+  if(v.at==='hinge'){ const r=rails[0], q=r.pins[3]; a=new THREE.Vector3(stand.position.x+r.sx,stand.position.y+q.position.y,stand.position.z+q.position.z); }
+  return {tx:a.x,ty:a.y,tz:a.z,W:v.W*pv.zoom,polar:clamp(v.polar+pv.drag.polar,3,88),az:v.az+pv.drag.az};
+}
+function desiredOffset(){
+  if(mode==='product'){
+    if(mobile()) return {x:0,y:size.h*.56/2};
+    return {x:(436)/2,y:0};
+  }
+  if(mobile()){ const nh=noteEl.offsetHeight||0; return {x:0,y:Math.min(nh,size.h*.44)/2+6}; }
+  const st=STEPS[Math.max(0,stepIdx)]; const nw=380+48;
+  return {x:st.side==='R'?nw/2:-nw/2,y:0};
+}
+
+/* =========================================================
+   Product view
+   ========================================================= */
+const pvEl=$('#pv'), panel=$('#pvPanel');
+let lastFocus=null, pushed=false;
+function money(n){ return '£'+n.toFixed(Number.isInteger(n)?0:2); }
+function controlHTML(id){
+  if(id==='stand') return `<div class="ctrl"><div class="ctrl-top"><label for="ctl">Fold it</label><output id="ctlOut" for="ctl"></output></div><input type="range" id="ctl" min="0" max="100" step="1"><div class="ends" aria-hidden="true"><span>Folded</span><span>Open</span></div><div class="seg"><button type="button" data-set="0">Folded</button><button type="button" data-set="100">Open</button></div></div>`;
+  if(id==='mat') return `<div class="ctrl"><div class="ctrl-top"><label for="ctl">Roll it</label><output id="ctlOut" for="ctl"></output></div><input type="range" id="ctl" min="0" max="100" step="1"><div class="ends" aria-hidden="true"><span>Flat</span><span>Rolled</span></div><p class="small" style="margin:6px 0 0">It rolls around its 350 mm edge, the way it ships.</p></div>`;
+  if(id==='clips') return `<div class="ctrl"><span class="lbl" id="cabLbl">Cables in the clips</span><div class="seg" role="group" aria-labelledby="cabLbl"><button type="button" data-cab="1">1</button><button type="button" data-cab="2">2</button><button type="button" data-cab="3">3</button></div><p class="small" style="margin:8px 0 0">Each clip has three channels. Cables aren’t included.</p></div>`;
+  return `<div class="ctrl"><span class="lbl">At the end of the day</span><div class="seg"><button type="button" data-away="1">Fold it all away</button><button type="button" data-away="0">Set it out</button></div></div>`;
+}
+function buildPanel(id){
+  const d=P[id];
+  const price=d.was?`<b>${money(d.price)}</b><span><s>${money(d.was)}</s> separately</span>`:`<b>${money(d.price)}</b>`;
+  panel.innerHTML=`
+    <p class="eyebrow">${d.finish}</p>
+    <h2 id="pvName" tabindex="-1">${d.name}</h2>
+    <div class="priceline">${price}<span class="stock">In stock</span><span class="small">${d.unit}</span></div>
+    <p class="lead">${d.lead}</p>
+    ${controlHTML(id)}
+    <h3>Views</h3>
+    <div class="views" role="group" aria-label="3D views">${d.views.map((v,i)=>`<button type="button" data-view="${i}" aria-pressed="${i===0}">${v[0]}</button>`).join('')}</div>
+    <button class="btn add" type="button" data-add="${id}">Add to bag · ${money(d.price)}</button>
+    <p class="small" style="margin-top:10px">${id==='set'?'Free delivery. Dispatched in 1–2 working days, then 2–4 working days to arrive. 30-day change-of-mind returns.':DELIVERY}</p>
+    <h3>Photos</h3>
+    <div class="thumbs">${d.photos.map((ph,i)=>`<button type="button" data-photo="${i}" aria-label="Open photo: ${ph[1]}"><img src="assets/photos/${ph[0]}-th.webp" alt="" width="320" height="320" loading="lazy"></button>`).join('')}</div>
+    <p class="small" style="margin-top:8px">Photos are concept renders. The 3D view is built to the listed sizes.</p>
+    <h3>Details</h3>
+    <dl class="specs">${d.specs.map(s=>`<dt>${s[0]}</dt><dd>${s[1]}</dd>`).join('')}</dl>
+    <h3>Good to know</h3><p>${d.limits}</p>
+    <h3>Care</h3><p>${d.care}</p>
+    <h3>${id==='set'?'In the set':'Goes with'}</h3>
+    <div class="related">${d.related.map(r=>`<button type="button" data-open="${r}">${P[r].name} · ${money(P[r].price)} →</button>`).join('')}</div>`;
+  syncControl();
+}
+function syncControl(){
+  if(!pv) return;
+  const ctl=panel.querySelector('#ctl'), out=panel.querySelector('#ctlOut');
+  if(pv.id==='stand'&&ctl){ const o=ov.open??applied.open; ctl.value=Math.round(o*100); const h=rearH(o*thetaMax); out.textContent=o<.005?'Folded · 22 mm':`Rear height ${Math.round(h)} mm`; ctl.setAttribute('aria-valuetext',out.textContent); }
+  if(pv.id==='mat'&&ctl){ const u=ov.u??applied.u; ctl.value=Math.round(u*100); out.textContent=u<.005?'Flat':(u>.995?'Rolled':Math.round(u*100)+'% rolled'); ctl.setAttribute('aria-valuetext',out.textContent); }
+  panel.querySelectorAll('[data-cab]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.cab===ov.cables));
+  panel.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.view===pv.view));
+  $('#pvViewName').textContent=P[pv.id].views[pv.view][0];
+}
+panel.addEventListener('input',e=>{
+  if(e.target.id!=='ctl') return; const v=+e.target.value/100;
+  if(pv.id==='stand') ov.open=v; if(pv.id==='mat') ov.u=v; syncControl(); kick();
+});
+panel.addEventListener('click',e=>{
+  const t=e.target.closest('button'); if(!t) return;
+  if(t.dataset.view!==undefined){ pv.view=+t.dataset.view; pv.drag={az:0,polar:0}; pv.zoom=1; syncControl(); kick(); }
+  else if(t.dataset.set!==undefined){ ov.open=+t.dataset.set/100; syncControl(); kick(); }
+  else if(t.dataset.cab!==undefined){ ov.cables=+t.dataset.cab; syncControl(); kick(); }
+  else if(t.dataset.away!==undefined){ const a=+t.dataset.away; ov.open=a?0:1; ov.u=a?1:0; kick(); }
+  else if(t.dataset.add){ addToBag(t.dataset.add); }
+  else if(t.dataset.photo!==undefined){ openLightbox(pv.id,+t.dataset.photo); }
+  else if(t.dataset.open){ openProduct(t.dataset.open,true); }
+});
+function productAnchor(id){
+  if(id==='set') return new THREE.Vector3(20,0,10);
+  if(id==='mat'){ if(applied.u>.6){ const c=matRollCentre(applied.u); return new THREE.Vector3(matGroup.position.x+c.x,c.y,c.z); } return new THREE.Vector3(matGroup.position.x,0,0); }
+  if(id==='stand') return new THREE.Vector3(stand.position.x,stand.position.y+(standKin?standKin.h*.45:10),stand.position.z-10);
+  return new THREE.Vector3(-248,clipsRoot.position.y+6,CLIPZ+clipsRoot.position.z);
+}
+function openProduct(id,swap){
+  if(!swap){ lastFocus=document.activeElement; }
+  const st=storyState(pCur);
+  ov.open=st.open; ov.u=st.matU; ov.cables=1;
+  if(id==='set'){ ov.open=null; ov.u=null; }
+  pv={id,view:0,anchor:productAnchor(id),drag:{az:0,polar:0},zoom:1};
+  mode='product'; hover=null;
+  buildPanel(id);
+  pvEl.hidden=false; document.documentElement.classList.add('locked','pv-on');
+  uiEl.inert=true; uiEl.classList.add('gone');
+  if(!RM&&!SNAP){ panel.classList.remove('unfold'); void panel.offsetWidth; panel.classList.add('unfold'); }
+  panel.scrollTop=0;
+  if(!pushed){ history.pushState({pv:id},'','#'+id); pushed=true; } else history.replaceState({pv:id},'','#'+id);
+  setTimeout(()=>$('#pvName').focus({preventScroll:true}),RM?0:350);
+  kick();
+}
+function closeProduct(fromPop){
+  if(mode!=='product') return;
+  mode='story'; pv=null; ov.open=null; ov.u=null; ov.cables=1;
+  pvEl.hidden=true; document.documentElement.classList.remove('locked','pv-on');
+  uiEl.inert=false; uiEl.classList.remove('gone');
+  if(pushed&&!fromPop){ pushed=false; history.back(); } else pushed=false;
+  if(lastFocus&&document.contains(lastFocus)) lastFocus.focus({preventScroll:true});
+  kick();
+}
+$('#pvBack').addEventListener('click',()=>closeProduct());
+addEventListener('popstate',()=>{ if(mode==='product') closeProduct(true); });
+addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ if(!$('#lb').hidden) closeLightbox(); else closeProduct(); }
+  if(e.key==='Tab'&&mode==='product'&&$('#lb').hidden){
+    const f=[...pvEl.querySelectorAll('button,input,[tabindex="-1"]')].filter(x=>x.offsetParent!==null);
+    if(!f.length) return; const first=f[0], last=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey&&document.activeElement===last){ e.preventDefault(); first.focus(); }
+  }
+  if(!$('#lb').hidden){ if(e.key==='ArrowRight') lbStep(1); if(e.key==='ArrowLeft') lbStep(-1); }
+});
+
+/* lightbox */
+let lbState=null;
+function openLightbox(id,i){ lbState={id,i}; $('#lb').hidden=false; lbShow(); $('#lbClose').focus(); }
+function lbShow(){ const ph=P[lbState.id].photos[lbState.i]; const img=$('#lbImg'); img.src='assets/photos/'+ph[0]+'.webp'; img.alt=ph[1]; $('#lbCap').textContent=`${ph[1]} Photo ${lbState.i+1} of ${P[lbState.id].photos.length}.`; }
+function lbStep(d){ const n=P[lbState.id].photos.length; lbState.i=(lbState.i+d+n)%n; lbShow(); }
+function closeLightbox(){ $('#lb').hidden=true; const b=panel.querySelector(`[data-photo="${lbState.i}"]`); if(b) b.focus(); }
+$('#lbClose').addEventListener('click',closeLightbox); $('#lbPrev').addEventListener('click',()=>lbStep(-1)); $('#lbNext').addEventListener('click',()=>lbStep(1));
+$('#lb').addEventListener('click',e=>{ if(e.target.id==='lb') closeLightbox(); });
+
+/* bag */
+const bag=[];
+function addToBag(id){
+  bag.push(id);
+  const sub=bag.reduce((s,k)=>s+P[k].price,0), n=bag.length;
+  $('#bagChip').textContent=`Bag · ${n}`; $('#bagChip').setAttribute('aria-label',`Bag, ${n} item${n>1?'s':''}, ${money(sub)}`);
+  const msg = sub>=75 ? `Added. Bag ${money(sub)}, delivery is free.` : `Added. Bag ${money(sub)}. ${money(75-sub)} more for free delivery.`;
+  toast(msg);
+}
+$('#bagChip').addEventListener('click',()=>{
+  if(!bag.length){ toast('Your bag is empty. Open a product on the desk to add it.'); return; }
+  const sub=bag.reduce((s,k)=>s+P[k].price,0), del=sub>=75?0:4.95;
+  toast(`${bag.length} item${bag.length>1?'s':''} · ${money(sub)} + delivery ${del?money(del):'free'}. Checkout isn’t part of this prototype.`);
+});
+let toastT=0;
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),3600); }
+
+/* =========================================================
+   Pointer: hover/click on desk, drag/zoom in product view
+   ========================================================= */
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
+function pick(e){
+  ndc.set(e.clientX/size.w*2-1,-(e.clientY/size.h)*2+1); ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObjects(PICK.filter(m=>m.visible&&isVisibleDeep(m)),false)[0];
+  return hit?hit.object.userData.prod:null;
+}
+function isVisibleDeep(o){ while(o){ if(!o.visible) return false; o=o.parent; } return true; }
+let down=null;
+canvas.addEventListener('pointerdown',e=>{
+  down={x:e.clientX,y:e.clientY,moved:false,id:e.pointerId};
+  if(mode==='product'){ canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); }
+});
+canvas.addEventListener('pointermove',e=>{
+  if(mode==='product'&&down){
+    const dx=e.clientX-down.x, dy=e.clientY-down.y; if(Math.abs(dx)+Math.abs(dy)>3) down.moved=true;
+    pv.drag.az-=dx*.35; pv.drag.polar-=dy*.3; down.x=e.clientX; down.y=e.clientY; kick(); return;
+  }
+  if(mode==='story'&&EXPLORE(pCur)&&e.pointerType!=='touch'){
+    const h=pick(e); if(h!==hover){ hover=h; kick(); } canvas.classList.toggle('hot',!!h);
+  }
+});
+addEventListener('pointerup',e=>{
+  if(!down) return;
+  const moved=down.moved||Math.hypot(e.clientX-down.x,e.clientY-down.y)>6;
+  canvas.classList.remove('dragging');
+  if(mode==='story'&&!moved&&e.target===canvas&&EXPLORE(pCur)){ const h=pick(e); if(h) openProduct(h); }
+  down=null;
+});
+canvas.addEventListener('wheel',e=>{ if(mode!=='product') return; e.preventDefault(); pv.zoom=clamp(pv.zoom*Math.exp(e.deltaY*.0012),.45,1.8); kick(); },{passive:false});
+
+/* =========================================================
+   Frame loop
+   ========================================================= */
+const HL=new THREE.Color();
+const matsOf={mat:[feltMat,feltEdgeMat],stand:[ALU,PAD,RUB,STEEL],clips:[CLIP,CABLE,CABLE2,CABLE3]};
+const hlCur={mat:0,stand:0,clips:0};
+let awake=3;
+function kick(){ awake=Math.max(awake,SNAP?3:45); }
+function smooth(cur,target,k,dt){ return (RM||SNAP)?target:cur+(target-cur)*(1-Math.exp(-k*dt)); }
+function lerpCam(target,k,dt){
+  for(const key of ['tx','ty','tz','polar']) cam[key]=smooth(cam[key],target[key],k,dt);
+  let da=((target.az-cam.az+540)%360)-180; cam.az=(RM||SNAP)?target.az:cam.az+da*(1-Math.exp(-k*dt));
+  cam.W=Math.exp(smooth(Math.log(cam.W),Math.log(target.W),k,dt));
+}
+function sceneState(s,dt){
+  // mat
+  const u=ov.u??s.matU; applied.u=smooth(applied.u,u,mode==='product'?7:30,dt);
+  matGroup.visible=s.matVis||mode==='product'; matGroup.position.x=s.matX; setMatRoll(clamp(applied.u,0,1));
+  // stand
+  const o=ov.open??s.open; applied.open=smooth(applied.open,o,mode==='product'?7:30,dt);
+  stand.visible=s.standVis||mode==='product'; stand.position.set(...s.standPos); setStandOpen(clamp(applied.open,0,1));
+  // clips
+  clipsRoot.visible=s.clipsVis||mode==='product';
+  clipsArrive.position.z=s.clipsArriveZ; clipsRoot.position.set(0,-3*s.clipsOff,200*s.clipsOff);
+  draw(cable1,mode==='product'?1:s.cable);
+  applied.c2=smooth(applied.c2,ov.cables>=2?1:0,4,dt); applied.c3=smooth(applied.c3,ov.cables>=3?1:0,4,dt);
+  draw(cable2,applied.c2); draw(cable3,applied.c3);
+  // light: day sweeps, then evening
+  const dayT=s.day, eve=s.eve;
+  const az=lerp(-140,-55,dayT)*D2R, el=lerp(60,26,dayT)*D2R;
+  sun.position.set(Math.cos(el)*Math.sin(az),Math.sin(el),Math.cos(el)*Math.cos(az)).multiplyScalar(3200);
+  sun.color.setRGB(1,lerp(.95,.78,dayT),lerp(.88,.6,dayT)).lerp(HL.setRGB(1,.55,.32),eve);
+  sun.intensity=lerp(lerp(2.1,1.7,dayT),.05,eve);
+  hemi.intensity=lerp(.55,.3,eve);
+  hemi.color.set(0xfff3e4).lerp(HL.set(0x7d8db0),eve); hemi.groundColor.set(0x3b2c1e).lerp(HL.set(0x141010),eve);
+  lamp.intensity=lerp(0,4.4e5,eve);
+  scene.background.copy(BG_DAY).lerp(BG_EVE,eve);
+  renderer.toneMappingExposure=lerp(.92,.9,eve);
+  // hover glow
+  for(const id in hlCur){
+    hlCur[id]=smooth(hlCur[id],hover===id?1:0,10,dt);
+    for(const m of matsOf[id]) m.emissive.setScalar(id==='mat'?hlCur[id]*.09:hlCur[id]*.06);
+  }
+}
+let lastNow=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-lastNow)/1000); lastNow=now;
+  const pPrev=pCur;
+  pCur=smooth(pCur,pTarget,9,dt); if(Math.abs(pCur-pTarget)<1e-5) pCur=pTarget;
+  if(Math.abs(pCur-pPrev)>1e-6) kick();
+  if(awake>0){
+    awake--;
+    const s=storyState(pCur);
+    // note step
+    let si=0; for(let i=0;i<STEPS.length;i++) if(pCur>=STEPS[i].at) si=i; setStep(si);
+    sceneState(s,dt);
+    const want=desiredOffset(); off.x=smooth(off.x,want.x,8,dt); off.y=smooth(off.y,want.y,8,dt);
+    lerpCam(mode==='product'?productCam():storyCam(pCur),mode==='product'?5:14,dt);
+    placeCamera();
+    renderer.render(scene,camera);
+    overlays(s);
+    // keep awake while still converging
+    if(Math.abs(off.x-want.x)>.5||Math.abs(off.y-want.y)>.5) kick();
+    const target=mode==='product'?productCam():storyCam(pCur);
+    if(Math.abs(cam.W-target.W)/target.W>.002||Math.abs(cam.tx-target.tx)>.3||Math.abs(cam.polar-target.polar)>.05) kick();
+    if(Math.abs(applied.open-(ov.open??s.open))>.002||Math.abs(applied.u-(ov.u??s.matU))>.002) kick();
+    for(const id in hlCur) if(Math.abs(hlCur[id]-(hover===id?1:0))>.01) kick();
+  }
+  requestAnimationFrame(frame);
+}
+function overlays(s){
+  const story=mode==='story';
+  // clock
+  let m; const p=pCur;
+  if(p<.48) m=8*60+55+Math.floor(ramp(p,0,.48)*5); else if(p<.67) m=540; else if(p<.75) m=540+Math.floor(ramp(p,.67,.75)*539); else if(p<.86) m=1079; else m=1080;
+  $('#clock').textContent=`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+  // note position (desktop): beside its product
+  const st=STEPS[stepIdx];
+  if(!mobile()){
+    let y=size.h/2-noteEl.offsetHeight/2;
+    if(st.anchor){ const a=anchorOf(st.anchor), sc=toScreen(a.x,a.y,a.z); y=sc[1]-noteEl.offsetHeight/2; }
+    y=clamp(y,72,size.h-noteEl.offsetHeight-24);
+    noteEl.style.top=y+'px'; noteEl.style.left=(st.side==='R'?size.w-380-32:32)+'px';
+  } else { noteEl.style.top=''; noteEl.style.left=''; }
+  // pins
+  const ex=story&&EXPLORE(p);
+  for(const id in pins){
+    const a=anchorOf(id), sc=toScreen(a.x,a.y,a.z), b=pins[id];
+    b.classList.toggle('hide',!ex||!sc[2]); b.tabIndex=ex?0:-1; b.setAttribute('aria-hidden',ex?'false':'true');
+    b.style.left=sc[0]+'px'; b.style.top=sc[1]+'px';
+    if(ex){ const sp=b.firstElementChild, half=sp.offsetWidth/2; let dx=0; if(sc[0]-half<8) dx=8-(sc[0]-half); else if(sc[0]+half>size.w-8) dx=size.w-8-(sc[0]+half); sp.style.transform=`translateX(${dx.toFixed(1)}px)`; }
+  }
+  // dimension lines
+  let o='';
+  if(story){
+    const ln=(a,b,w=1.5)=>`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="rgba(0,0,0,.45)" stroke-width="${w+2.5}"/><line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="#fff" stroke-width="${w}"/>`;
+    const tx=(pt,str,dy=0)=>{ const w=str.length*7.4; const x=clamp(pt[0]-w/2,8,size.w-8-w), y=clamp(pt[1]+dy,64,size.h-8); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}">${str}</text>`; };
+    const S=(x,y,z)=>toScreen(x,y,z);
+    const am=ramp(p,.15,.17)*(1-ramp(p,.205,.225));
+    if(am>0){ const y=3,z=-175-28,a=S(-350,y,z),b=S(350,y,z); let g=ln(a,b);
+      for(let i=0;i<=7;i++){ const q=S(-350+i*100,y,z), q2=S(-350+i*100,y,z+(i%7===0?18:10)); g+=ln(q,q2); }
+      g+=tx([(a[0]+b[0])/2,(a[1]+b[1])/2],'700 mm',-12);
+      const c=S(350+28,y,-175), d=S(350+28,y,175); g+=ln(c,d)+ln(c,S(350+12,y,-175))+ln(d,S(350+12,y,175)); g+=tx([(c[0]+d[0])/2+40,(c[1]+d[1])/2],'350 mm',4);
+      o+=`<g opacity="${am.toFixed(3)}">${g}</g>`; }
+    const as=ramp(p,.26,.28)*(1-ramp(p,.345,.36));
+    if(as>0&&standKin){ const x=stand.position.x+92+30, z=stand.position.z+ST.front-standKin.R[0], y0=stand.position.y, h=standKin.h;
+      const a=S(x,y0,z), b=S(x,y0+h,z); let g=ln(a,b)+ln(S(x-8,y0,z),S(x+8,y0,z))+ln(S(x-8,y0+h,z),S(x+8,y0+h,z));
+      g+=tx([(a[0]+b[0])/2+42,(a[1]+b[1])/2],`${Math.round(h)} mm`,4);
+      o+=`<g opacity="${as.toFixed(3)}">${g}</g>`; }
+    const ac=ramp(p,.415,.43)*(1-ramp(p,.465,.48));
+    if(ac>0){ const x=-222+14,y=3+12+4,a=S(x,y,CLIPZ-22),b=S(x,y,CLIPZ+22); let g=ln(a,b)+ln(S(x-3,y,CLIPZ-22),S(x+3,y,CLIPZ-22))+ln(S(x-3,y,CLIPZ+22),S(x+3,y,CLIPZ+22));
+      g+=tx([b[0]+34,b[1]],'44 mm',4);
+      const c=S(-274,16,CLIPZ), d=S(-274,48,CLIPZ-30); g+=ln(c,d)+tx([d[0],d[1]],'3 channels',-8);
+      o+=`<g opacity="${ac.toFixed(3)}">${g}</g>`; }
+    // leader from note to its product
+    if(!mobile()&&st.anchor&&!EXPLORE(p)){
+      const a=anchorOf(st.anchor), sc=toScreen(a.x,a.y,a.z), r=noteEl.getBoundingClientRect();
+      const nx=st.side==='R'?r.left:r.right, ny=clamp(sc[1],r.top+20,r.bottom-20);
+      o+=`<line class="leader" x1="${nx}" y1="${ny}" x2="${sc[0].toFixed(1)}" y2="${sc[1].toFixed(1)}" stroke-dasharray="3 4"/><circle cx="${sc[0].toFixed(1)}" cy="${sc[1].toFixed(1)}" r="4" fill="#FFFDF8"/>`;
+    }
+  }
+  dimsEl.innerHTML=o;
+}
+
+/* =========================================================
+   Scroll + resize
+   ========================================================= */
+function readScroll(){
+  const tr=$('#track'), max=tr.offsetHeight-innerHeight;
+  pTarget=clamp((scrollY-tr.offsetTop)/max,0,1);
+  uiEl.classList.toggle('gone',scrollY>tr.offsetTop+max+innerHeight*.35 || mode==='product');
+  kick();
+}
+function resize(){
+  size.w=innerWidth; size.h=innerHeight;
+  renderer.setPixelRatio(Math.min(devicePixelRatio,mobile()?1.6:2));
+  renderer.setSize(size.w,size.h,false);
+  dimsEl.setAttribute('viewBox',`0 0 ${size.w} ${size.h}`);
+  kick();
+}
+addEventListener('scroll',()=>{ if(mode==='story') readScroll(); },{passive:true});
+addEventListener('resize',()=>{ resize(); readScroll(); });
+
+manager.onLoad=()=>{
+  resize(); readScroll(); pCur=pTarget;
+  const s0=storyState(pCur); applied.open=s0.open; applied.u=s0.matU;
+  Object.assign(cam,storyCam(pCur));
+  setStep(0);
+  $('#loader').classList.add('done'); setTimeout(()=>$('#loader').remove(),600);
+  kick(); requestAnimationFrame(frame);
+  const h=location.hash.slice(1); if(P[h]){ goToP(.58); setTimeout(()=>openProduct(h),RM?0:900); }
+};
+</script>
+</body>
+</html>
