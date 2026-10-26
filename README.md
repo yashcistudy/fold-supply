@@ -64,6 +64,8 @@ python3 source/tools/build2.py   # rebuilds index.html from source/parts
 - `source/tools/cal.json`: the solved camera; `calib.py` is the solver
 
 ## Credits
+- Lighting: [Hotel Room](https://polyhaven.com/a/hotel_room) HDRI by Greg Zaal, Poly Haven (CC0)
+- Material textures: [Caban](https://polyhaven.com/a/caban), Poly Haven (CC0) and [Metal Substance 005](https://ambientcg.com/view?id=MetalSubstance005), ambientCG (CC0)
+- Room image and product photos: AI-generated concept images
 - Typefaces: Chillax (Indian Type Foundry, via Fontshare), Gentium Book Plus (SIL, Open Font License)
 - 3D library: three.js (MIT)
-- Room plates, product photos and some material textures: AI-generated for this project

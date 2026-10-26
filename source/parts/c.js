@@ -222,7 +222,7 @@ function sceneState(s,dt){
   lamp.intensity=lerp(0,CAL.lampI,eve);
   for(const m of prodMats.concat(lapMats)) m.envMapIntensity=(m.userData.env??(m.userData.env=m.envMapIntensity))*lerp(1,.6,eve);
   renderer.toneMappingExposure=lerp(1.7,1.6,eve); // match the photo's exposure
-  for(const id in hlCur){ hlCur[id]=smooth(hlCur[id],hover===id?1:0,10,dt); for(const m of matsOf[id]) m.emissive.setScalar(hlCur[id]*(id==='mat'?.09:.06)); }
+  for(const id in hlCur){ hlCur[id]=smooth(hlCur[id],hover===id?1:0,10,dt); for(const m of matsOf[id]) m.emissive.setScalar(hlCur[id]*(id==='mat'?.035:.05)); }
 }
 let lastNow=performance.now();
 function frame(now){

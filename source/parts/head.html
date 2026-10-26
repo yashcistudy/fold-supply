@@ -291,7 +291,7 @@ footer .wm{height:26px;width:auto;display:block;margin-bottom:22px}
 <div id="ui">
   <svg id="dims" aria-hidden="true"></svg>
   <div class="chips">
-    <span class="proto-tag">Prototype · fictional brand</span>
+    <button class="proto-tag" id="protoTag" type="button" aria-label="Fictional brand. About this project">Fictional brand · <u>About</u></button>
     <div class="right"><span class="chip clock" aria-hidden="true">On the desk<b id="clock">08:55</b></span></div>
   </div>
   <div id="pins"></div>
@@ -300,21 +300,7 @@ footer .wm{height:26px;width:auto;display:block;margin-bottom:22px}
 
 <div id="track" aria-hidden="true"></div>
 
-<footer class="about" id="about">
-  <div>
-    <img class="wm" src="assets/brand/wordmark-line.svg" alt="Fold Supply" width="605" height="106">
-    <h2>About this prototype</h2>
-    <ul>
-      <li><b>A photographed room with real-time 3D products in it.</b> The camera was solved from the desk’s four corners, so the products sit in the photo at true scale and cast soft shadows onto it.</li>
-      <li><b>Built to the brief’s numbers.</b> The mat is 700 × 350 × 3 mm with 12 mm corners. The stand opens to a 110 mm rear height and folds to a 22 mm envelope. Each clip is 44 × 20 × 12 mm with three channels.</li>
-      <li><b>Every motion is a real product action.</b> The mat arrives rolled and unrolls, the stand opens under the laptop, and at 18:00 it folds flat again.</li>
-      <li><b>Not included:</b> the laptop, the cable and everything else in the room are there for scale and context only.</li>
-      <li><b>Images.</b> The room plates, materials and product photos are AI-generated concept images. The lighting comes from a captured interior HDRI (CC0, Poly Haven).</li>
-      <li><b>Dressed in the locked identity.</b> The folded full stop, Chillax for names and Gentium Book Plus for reading and prices. Felt and silver by day, lamp amber once the stand folds at six.</li>
-      <li><b>Reduced motion.</b> The camera cuts between set views instead of moving, and pages open without animation.</li>
-    </ul>
-  </div>
-</footer>
+<!-- the About text now lives on its own page (#about), not under the scroll -->
 
 <nav class="band" id="band" aria-label="Fold Supply">
   <button class="band-logo" type="button" data-go="desk" aria-label="Fold Supply, back to the desk"><img src="assets/brand/wordmark-line-evening.svg" alt="" width="605" height="106"></button>

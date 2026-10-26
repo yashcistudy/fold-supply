@@ -158,8 +158,8 @@ function render(){
     <button class="btn add" type="button" data-go="desk">Back to the desk</button>`; }
   return '';
 }
-const MORE=`<p class="note" style="margin-top:22px;display:flex;flex-wrap:wrap;gap:6px 18px">${[['shop','Shop'],['approach','Our approach'],['help','Help and care'],['delivery','Delivery and returns']].map(([k,n])=>`<button class="link" type="button" data-go="${k}">${n}</button>`).join('')}</p>`;
-function draw2(focus){ panel.innerHTML=`<div class="pg">${render()}${['help','approach','delivery','shop'].includes(page)?MORE.replace(`data-go="${page}"`,`data-go="${page}" aria-current="page" hidden`):''}</div>`; panel.scrollTop=0; if(focus) setTimeout(()=>{ const h=$('#pvName'); if(h) h.focus({preventScroll:true}); },RM?0:300); }
+const MORE=`<p class="note" style="margin-top:22px;display:flex;flex-wrap:wrap;gap:6px 18px">${[['shop','Shop'],['approach','Our approach'],['help','Help and care'],['delivery','Delivery and returns'],['about','About this project']].map(([k,n])=>`<button class="link" type="button" data-go="${k}">${n}</button>`).join('')}</p>`;
+function draw2(focus){ panel.innerHTML=`<div class="pg">${render()}${['help','approach','delivery','shop','about'].includes(page)?MORE.replace(`data-go="${page}"`,`data-go="${page}" aria-current="page" hidden`):''}</div>`; panel.scrollTop=0; if(focus) setTimeout(()=>{ const h=$('#pvName'); if(h) h.focus({preventScroll:true}); },RM?0:300); }
 
 function openPage(id){
   if(id==='desk'){ closePage(); return; }
@@ -228,7 +228,7 @@ panel.addEventListener('submit',e=>{
   // the lamp comes on: finish the day
   const tr=$('#track'), max=tr.offsetHeight-innerHeight; scrollTo({top:tr.offsetTop+.96*max,behavior:'auto'}); pTarget=.96; if(RM||SNAP) pCur=.96; kick();
 },true);
-{ const h0=location.hash.slice(1); if(['shop','help','approach','delivery','bag'].includes(h0)) setTimeout(()=>openPage(h0),RM?0:1000); }
+{ const h0=location.hash.slice(1); if(['shop','help','approach','delivery','bag','about'].includes(h0)) setTimeout(()=>openPage(h0),RM?0:1000); }
 /* ---- the kraft box: the bag lives on the desk ---- */
 const KRAFT=new THREE.MeshStandardMaterial({color:0xA27B4F,roughness:.9,metalness:0,envMapIntensity:.45});
 const KRAFT_IN=new THREE.MeshStandardMaterial({color:0xA8875F,roughness:.92,envMapIntensity:.4});
