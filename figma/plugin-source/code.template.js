@@ -1,0 +1,591 @@
+/* Fold Supply: design file builder (Figma plugin)
+   Run it in an empty Figma design file. It builds the whole design record:
+   cover, brief, process, foundations (variables + text styles), components,
+   page sheets built from those components, flows, and every screen. */
+
+const SHOTS = 'https://yashcistudy.github.io/fold-supply/figma/shots/';
+const LIVE = 'https://yashcistudy.github.io/fold-supply/';
+const SVG = __SVG__;
+
+/* ---------- colour ---------- */
+const HEX = { studio:'#F2F1EE', graphite:'#1E1F21', muted:'#5C5E62', felt:'#3A3B3D', silver:'#C9CACC', kraft:'#C9A57A',
+  studioWhite:'#ECEBE8', lamp:'#F0A74B', line:'#CFCDC8', error:'#B42318', positive:'#146C43', focus:'#0A5CD6', white:'#FFFFFF', note:'#FFF6D6' };
+function rgb(hex){ const n=parseInt(hex.slice(1),16); return { r:((n>>16)&255)/255, g:((n>>8)&255)/255, b:(n&255)/255 }; }
+function solid(hex, a){ const p={ type:'SOLID', color:rgb(hex) }; if(a!=null) p.opacity=a; return p; }
+const V = {};          // primitive variables by key
+const S = {};          // semantic (theme) variables by key
+function paintVar(v, hex){ return figma.variables.setBoundVariableForPaint(solid(hex), 'color', v); }
+function fillWith(node, key){ node.fills = V[key] ? [paintVar(V[key], HEX[key])] : [solid(HEX[key])]; }
+function strokeWith(node, key, w){ node.strokes = V[key] ? [paintVar(V[key], HEX[key])] : [solid(HEX[key])]; node.strokeWeight = w||1; }
+
+/* ---------- fonts ---------- */
+const F = {}; const fallbacks = [];
+async function pick(role, cands){
+  for(const f of cands){ try{ await figma.loadFontAsync(f); F[role]=f; return; }catch(e){} }
+  const last={family:'Inter',style:'Regular'}; await figma.loadFontAsync(last); F[role]=last; fallbacks.push(role);
+}
+async function loadFonts(){
+  await figma.loadFontAsync({family:'Inter',style:'Regular'});
+  await pick('display', [{family:'Chillax',style:'Semibold'},{family:'Chillax',style:'SemiBold'},{family:'Chillax Variable',style:'Semibold'},{family:'Chillax',style:'Bold'},{family:'Inter',style:'Semi Bold'}]);
+  await pick('ui', [{family:'Chillax',style:'Medium'},{family:'Chillax Variable',style:'Medium'},{family:'Chillax',style:'Semibold'},{family:'Inter',style:'Medium'}]);
+  await pick('body', [{family:'Gentium Book Plus',style:'Regular'},{family:'Gentium Plus',style:'Regular'},{family:'Georgia',style:'Regular'},{family:'Inter',style:'Regular'}]);
+  await pick('bodyBold', [{family:'Gentium Book Plus',style:'Bold'},{family:'Gentium Plus',style:'Bold'},{family:'Georgia',style:'Bold'},{family:'Inter',style:'Bold'}]);
+  await pick('bodyItalic', [{family:'Gentium Book Plus',style:'Italic'},{family:'Gentium Plus',style:'Italic'},{family:'Georgia',style:'Italic'},{family:'Inter',style:'Italic'}]);
+  if(F.display.family==='Inter') fallbacks.push('Chillax');
+}
+
+/* ---------- text styles ---------- */
+const TS = {};
+const TYPE = [
+  ['Display/XL', 'display', 54, 102, -1], ['Display/L', 'display', 40, 105, -1], ['Display/M', 'display', 34, 110, -1], ['Display/S', 'display', 22, 118, 0],
+  ['UI/Button', 'display', 15, 120, 0], ['UI/Label', 'display', 13, 125, 0], ['UI/Eyebrow', 'display', 12, 125, 8],
+  ['Body/L', 'body', 18, 155, 0], ['Body/M', 'body', 16, 155, 0], ['Body/S', 'body', 14, 150, 0],
+  ['Price/L', 'bodyBold', 28, 110, 0], ['Price/M', 'bodyBold', 17, 120, 0],
+  ['Subtitle/Desktop', 'display', 34, 118, 0], ['Subtitle/Mobile', 'display', 21, 120, 0]
+];
+function makeTextStyles(){
+  for(const [name, role, size, lh, ls] of TYPE){
+    const s=figma.createTextStyle(); s.name=name; s.fontName=F[role]; s.fontSize=size;
+    s.lineHeight={unit:'PERCENT', value:lh}; s.letterSpacing={unit:'PERCENT', value:ls};
+    if(name==='UI/Eyebrow') s.textCase='UPPER';
+    TS[name]=s;
+  }
+}
+
+/* ---------- helpers ---------- */
+async function T(str, o){
+  o=o||{};
+  const t=figma.createText();
+  const st=o.style?TS[o.style]:null;
+  t.fontName = st ? st.fontName : (o.font || F.body);
+  t.characters = String(str);
+  if(st){ await t.setTextStyleIdAsync(st.id); } else { t.fontSize=o.size||16; t.lineHeight={unit:'PERCENT', value:o.lh||150}; }
+  if(o.size&&st) t.fontSize=o.size;
+  t.fills=[solid(o.color||HEX.graphite)];
+  if(o.caps) t.textCase='UPPER';
+  if(o.align) t.textAlignHorizontal=o.align;
+  if(o.w){ t.textAutoResize='HEIGHT'; t.resize(o.w, Math.max(1,t.height)); } else t.textAutoResize='WIDTH_AND_HEIGHT';
+  if(o.name) t.name=o.name;
+  return t;
+}
+function AL(dir, o){
+  o=o||{};
+  const f=figma.createFrame(); f.name=o.name||'Frame'; f.layoutMode=dir;
+  f.itemSpacing=o.gap||0;
+  const p=o.pad||[0,0,0,0]; f.paddingTop=p[0]; f.paddingRight=p[1]; f.paddingBottom=p[2]; f.paddingLeft=p[3];
+  if(dir==='VERTICAL'){ f.primaryAxisSizingMode='AUTO'; f.counterAxisSizingMode=o.w?'FIXED':'AUTO'; }
+  else { f.primaryAxisSizingMode=o.w?'FIXED':'AUTO'; f.counterAxisSizingMode='AUTO'; }
+  if(o.w) f.resize(o.w, 10);
+  f.fills=[]; if(o.fill) fillWith(f, o.fill);
+  f.primaryAxisAlignItems=o.align||'MIN'; f.counterAxisAlignItems=o.cross||'MIN';
+  f.clipsContent=false;
+  if(o.wrap) f.layoutWrap='WRAP';
+  return f;
+}
+function add(parent, child, o){
+  parent.appendChild(child);
+  if(o&&o.fill&&parent.layoutMode&&parent.layoutMode!=='NONE'){
+    if(child.type==='TEXT') child.textAutoResize='HEIGHT';
+    if(parent.layoutMode==='VERTICAL') child.layoutSizingHorizontal='FILL'; else child.layoutGrow=1;
+  }
+  return child;
+}
+function rule(w, key, weight){ const r=figma.createRectangle(); r.name='Rule'; r.resize(w, weight||1); fillWith(r, key||'line'); return r; }
+function svg(str, w, name){ const n=figma.createNodeFromSvg(str); if(w){ n.rescale(w/n.width); } if(name) n.name=name; return n; }
+function corner(size, key, right){ const v=figma.createVector(); v.name='Felt corner'; v.vectorPaths=[{windingRule:'NONZERO', data: right?`M 0 0 L ${size} 0 L ${size} ${size} Z`:`M 0 0 L ${size} 0 L 0 ${size} Z`}]; fillWith(v, key||'felt'); return v; }
+const imgCache = {};
+async function shotImage(file){
+  if(imgCache[file]) return imgCache[file];
+  try{ const img=await figma.createImageAsync(SHOTS+file); imgCache[file]=img.hash; return img.hash; }catch(e){ return null; }
+}
+async function shotFrame(file, w, h, name){
+  const f=figma.createFrame(); f.name=name||file; f.resize(w,h); f.clipsContent=true;
+  const hash=await shotImage(file);
+  if(hash){ f.fills=[{type:'IMAGE', scaleMode:'FILL', imageHash:hash}]; }
+  else { fillWith(f,'studioWhite'); const t=await T('Screenshot: '+file+'\n(could not load, check your connection and run again)',{style:'Body/S',color:HEX.muted,w:w-48}); f.appendChild(t); t.x=24; t.y=24; }
+  return f;
+}
+let pageY = 0;
+async function newPage(name){
+  const p=figma.createPage(); p.name=name; await figma.setCurrentPageAsync(p); pageY=0; return p;
+}
+async function board(title, eyebrow, intro, w){
+  w=w||1440;
+  const b=AL('VERTICAL',{name:title, w, pad:[64,72,72,72], gap:28, fill:'studio'});
+  const head=AL('VERTICAL',{name:'Header', gap:12});
+  add(b, head, {fill:true});
+  add(head, await T(eyebrow,{style:'UI/Eyebrow', color:HEX.muted}));
+  add(head, await T(title,{style:'Display/XL', w:w-144}), {fill:true});
+  if(intro) add(head, await T(intro,{style:'Body/L', color:HEX.felt, w:Math.min(860,w-144)}));
+  add(b, rule(w-144,'graphite',2), {fill:true});
+  figma.currentPage.appendChild(b); b.x=0; b.y=pageY;
+  return b;
+}
+function place(node, gapAfter){ node.y=pageY; pageY+=node.height+(gapAfter||160); }
+
+/* ---------- 1. variables ---------- */
+function makeVariables(){
+  const prim=figma.variables.createVariableCollection('Fold Supply · Primitives');
+  const pm=prim.modes[0].modeId; prim.renameMode(pm,'Value');
+  const names={studio:'colour/studio', graphite:'colour/graphite', muted:'colour/muted', felt:'colour/felt', silver:'colour/silver', kraft:'colour/kraft', studioWhite:'colour/studio-white', lamp:'colour/lamp', line:'colour/line', error:'state/error', positive:'state/positive', focus:'state/focus', white:'colour/white'};
+  for(const k in names){ const v=figma.variables.createVariable(names[k], prim, 'COLOR'); const c=rgb(HEX[k]); v.setValueForMode(pm,{r:c.r,g:c.g,b:c.b,a:1}); V[k]=v; }
+  const sp=[['space/4',4],['space/8',8],['space/12',12],['space/16',16],['space/24',24],['space/36',36],['space/56',56],['space/72',72],['size/band-desktop',84],['size/band-mobile',112],['size/sheet',420],['motion/fold-ms',240]];
+  for(const [n,val] of sp){ const v=figma.variables.createVariable(n, prim, 'FLOAT'); v.setValueForMode(pm,val); }
+  const th=figma.variables.createVariableCollection('Fold Supply · Theme');
+  const day=th.modes[0].modeId; th.renameMode(day,'Day');
+  let eve=null; try{ eve=th.addMode('Evening'); }catch(e){ eve=null; }
+  const sem=[['surface/page','studio','graphite'],['surface/sheet','studio','graphite'],['text/primary','graphite','studioWhite'],['text/secondary','muted','silver'],['accent/mark','felt','lamp'],['accent/action','graphite','lamp'],['border/hairline','line','felt']];
+  for(const [n,d,e] of sem){ const v=figma.variables.createVariable(n, th, 'COLOR');
+    v.setValueForMode(day, figma.variables.createVariableAlias(V[d])); if(eve) v.setValueForMode(eve, figma.variables.createVariableAlias(V[e])); else v.description='Day: '+d+' · Evening: '+e; S[n]=v; }
+  return { evening: !!eve };
+}
+
+/* ---------- content ---------- */
+const PRODUCTS = [
+  ['Desk Mat','£28','700 × 350 × 3 mm compressed polyester felt, 12 mm corners, ships rolled','mat-flat'],
+  ['Folding Laptop Stand','£49','250 × 220 mm open, 110 mm rear height, folds to a 22 mm envelope','stand-open'],
+  ['Cable Clips Pair','£9','44 × 20 × 12 mm silicone, 3 channels each','clip-on'],
+  ['Desk Set','£76','Mat, stand and clips pair (£86 separately)','desk-set']
+];
+const LOG = [
+  ['01 Brief','25 Oct','Read the 16-file client kit: brief, catalogue, commerce rules, copy deck, artwork templates and AI product images.','Self-initiated, fictional and labelled as such. Biggest weightings: clarity 25%, identity 20%, recovery 20%.',0],
+  ['02 Research','25 Oct','Researched freelance demand, portfolio formats, the “AI look”, parallax and 3D UX, WCAG motion rules and UK shopper expectations (Baymard, NN/g, W3C, Ofcom).','Motion only where it explains a product. Fit info and delivery cost shown up front. No gradients-and-bento defaults.',0],
+  ['03 The fold idea','25 Oct','“Everything folds” clashes with the brief: the mat rolls, and the clips just lift off.','Fold = the shift from work to home. Verbs: fold (stand), roll (mat), lift off (clips). The mat is never shown folding.',0],
+  ['04 Round 1','boards 00–05','Font audit: 49 files narrowed to 11 that can ship. Stress test with real copy. Four colour role systems. Four territories with the same applications.','Only Red Hat Display and Outfit have tabular figures. Cobalt disappears next to the felt (1.5 : 1). Tape yellow can never be text.',0],
+  ['05 Feedback','Yas · 25 Oct','“I really like T2 and T4.” “I really like the readability Chillax has.”','Push T2 and T4 further. Chillax becomes the reading face to test everywhere.',1],
+  ['06 Round 2','T2b–d, T4b–d, H1','Three new pairings each for T2 and T4, plus a hybrid. Chillax sets the body copy on every board.','Chillax has no tabular figures, so prices stay in a second face. A role split, not a compromise.',0],
+  ['07 Feedback','Yas · 25 Oct','Likes the measurements, but nothing feels immersive yet. Wants desk from above, camera into the room, dark product stage. Prefers one type family.','Static boards can’t show immersion.',1],
+  ['08 Round 3','scroll prototype','A scrolling prototype: desk from above, into the room, on stage. One-family type switch and a reduced-motion mode. Price and Add to bag never animate.','Measurement language kept in every scene.',0],
+  ['09 Fonts','25 Oct','Scanned a 370-file fonts folder, tested 13 candidates, kept 3.','Licence risk or missing £ / × ruled several faces out.',0],
+  ['10 Round 4','R4-1 to R4-5','Name and slogan in four pairings across five palettes, plus six imagotype ideas tested as lockup, avatar, kraft print and 16 px icon.','The folded F is kept as a rejected route.',0],
+  ['11 Decision','Yas · 26 Oct','Gentium Book Plus and Chillax, a tape palette plus a red. Explore the fold in the wordmark, spatially.','Eight fold studies made.',1],
+  ['12 Roles swapped','Yas · 26 Oct','Chillax for display, Gentium Book Plus for body. Explore the meter only.','Nine meter versions made.',1],
+  ['13 The fold only','Yas · 26 Oct','Clever everywhere. Build mobile + desktop. No identity yet: work on the fold only.','Neutral scroll prototype: products land at 3.072 px/mm, the clock runs 08:55 to 18:00.',1],
+  ['14 Real 3D desk','Yas · 26 Oct','Full-screen desk, clickable products, full-screen product pages. Chose real 3D, not AI renders.','three.js desk built to the brief sizes. Mat unrolls, stand scissor solved live, clips take 1–3 cables.',1],
+  ['15 Round 7','R7-1 to R7-4','A quieter path: stacked wordmarks, product icons, nine minimal folds, three palettes, all in one ink first.','Strongest idea: the folded full stop, a square folded on its diagonal.',0],
+  ['16 Round 8','Yas · 26 Oct','Explore the folded full stop only, in palettes that match the products.','Every colour is a material: felt, silver, graphite, kraft, studio white, plus lamp amber.',1],
+  ['17 Locked','Yas · 26 Oct','“I like the amber. Let’s lock this identity.” Design system and an 18-slide brandbook.','Locked: the folded full stop, Chillax 600 display, Gentium Book Plus body and prices, felt by day, lamp amber by evening.',1],
+  ['18 Desk at home','Yas · 26 Oct','“Needs to feel like home; text covers things.” Day and evening room plates plus a CC0 interior HDRI.','Camera solved from the desk’s four corners (3.4 px error). Live 3D composited into the image.',1],
+  ['19 Round 9','Yas · 26 Oct','“The UI doesn’t match the brand: round corners, floating windows, solid backs.” Static directions: spec-sheet type, dashed crease, desk-edge band, product page, the room as the shop.','Chosen: the desk-edge band with the room as the shop. Every page lives on an object in the room.',1],
+  ['20 Round 10','26 Oct','Built it: the band, a spec-sheet product page with a ruler fold control, every brief template on an object, bag and checkout with postcode recovery, the kraft box that seals on order.','When the mat rolls, the other products lift off and fade. A knit texture was rejected because it would misrepresent felt.',0],
+  ['21 Shipping','Yas · 26 Oct','Portfolio for Upwork, Fiverr and Freelancer. Selling, in order: e-commerce UX/UI, brand identity, immersive 3D web.','Live on GitHub Pages. Credits confirmed.',1],
+  ['22 Walkthrough 1','Yas · 27 Oct','Recorded a walkthrough: captions hard to read, labels pile up, disclaimer at the end of the scroll, no sign that you should scroll.','Label placement system, a day rail with an end, a guide line, About moved to its own page.',1],
+  ['23 Walkthrough 2','Yas · 27 Oct','“The blur looks cheap.” Rendering bugs when zoomed out. Wants an intro, autoplay, disclaimers and contact. Four readability options compared.','Chose captions like video-game subtitles. Intro card, Play the day, About and Contact. Shadows redraw only when something moves.',1],
+  ['24 Mobile guide','Yas · 27 Oct','“Instructions on mobile can appear on floating cards that are closeable.”','On phones the guide is a card that folds into a tab showing the current step.',1]
+];
+
+/* ---------- 2. foundations ---------- */
+async function foundations(hasEvening){
+  await newPage('03 Foundations');
+  const b=await board('Foundations','Fold Supply · 03','Every colour is a material from the products or the room. One mark, one move: the fold. Two type roles. Built as Figma variables and text styles, so everything below is connected.');
+  // colour
+  add(b, await T('Colour',{style:'Display/M'}));
+  const sw=AL('HORIZONTAL',{name:'Swatches', gap:16, wrap:true}); add(b, sw, {fill:true}); sw.counterAxisSpacing=16;
+  const roles=[['studio','Studio','#F2F1EE','Page by day'],['graphite','Graphite','#1E1F21','Ink, band, buttons'],['muted','Muted','#5C5E62','Secondary text'],['felt','Felt','#3A3B3D','The mat; the fold mark'],['silver','Silver','#C9CACC','Aluminium; the fold mark'],['kraft','Kraft','#C9A57A','Box, packaging'],['studioWhite','Studio white','#ECEBE8','Text on graphite'],['lamp','Lamp','#F0A74B','Evening only, on graphite'],['error','Error','#B42318','Field errors, with icon + words'],['positive','Positive','#146C43','In stock'],['focus','Focus','#0A5CD6','Keyboard focus ring']];
+  for(const [k,n,h,u] of roles){
+    const c=AL('VERTICAL',{name:n, w:200, gap:8});
+    const r=figma.createRectangle(); r.name='Swatch'; r.resize(200,120); fillWith(r,k); if(k==='studio'||k==='studioWhite') strokeWith(r,'line',1);
+    add(c,r); add(c, await T(n,{style:'UI/Label'})); add(c, await T(h+' · '+u,{style:'Body/S', color:HEX.muted, w:200}));
+    add(sw,c);
+  }
+  add(b, await T(hasEvening?'Theme variables have a Day and an Evening mode: switch the mode on any frame to see the evening palette.':'Theme variables are set up for Day. Your plan allows one mode per collection, so the Evening values are listed in each variable’s description.',{style:'Body/S', color:HEX.muted, w:900}));
+  // type
+  add(b, rule(1296,'line'), {fill:true});
+  add(b, await T('Type',{style:'Display/M'}));
+  const tg=AL('VERTICAL',{name:'Type specimens', gap:18}); add(b,tg,{fill:true});
+  const samples=[['Display/XL','Work here. Fold it away at six.'],['Display/L','That’s the whole desk.'],['Display/M','Opens to 110 mm. Folds to 22.'],['Display/S','Three channels each.'],['UI/Eyebrow','08:55 · Monday'],['Body/L','A felt mat, a folding laptop stand and two cable clips, set out at their real sizes.'],['Body/M','Lift loose bits with a soft brush. Blot spills straight away.'],['Price/L','£76'],['Subtitle/Desktop','Same desk. Different evening']];
+  for(const [s,txt] of samples){ const row=AL('HORIZONTAL',{name:s, gap:32, cross:'BASELINE'}); add(tg,row,{fill:true});
+    add(row, await T(s+'\n'+TS[s].fontName.family+' '+TS[s].fontName.style+' · '+TS[s].fontSize,{style:'Body/S', color:HEX.muted, w:220}));
+    add(row, await T(txt,{style:s, w:1000})); }
+  // mark + wordmark + icons
+  add(b, rule(1296,'line'), {fill:true});
+  add(b, await T('The mark: a folded full stop',{style:'Display/M'}));
+  const mk=AL('HORIZONTAL',{name:'Marks', gap:48, cross:'CENTER'}); add(b,mk);
+  add(mk, svg(SVG.stop,140,'Folded full stop · day')); add(mk, svg(SVG.stopEve,140,'Folded full stop · evening'));
+  add(mk, svg(SVG.wordmark,420,'Wordmark · day'));
+  const eveBox=AL('HORIZONTAL',{name:'Wordmark on graphite', pad:[28,32,28,32], fill:'graphite'}); add(eveBox, svg(SVG.wordmarkEve,360,'Wordmark · evening')); add(mk,eveBox);
+  add(b, await T('A square folded on its diagonal: finished, put away, closed. It ends the wordmark, seals the box, marks the selected tab and sits in the corner of every sheet. Motion: one fold, 240 ms.',{style:'Body/M', color:HEX.felt, w:900}));
+  add(b, await T('Icons',{style:'Display/S'}));
+  const ic=AL('HORIZONTAL',{name:'Icons', gap:28, wrap:true}); add(b,ic,{fill:true}); ic.counterAxisSpacing=20;
+  for(const k in SVG.icons){ const c=AL('VERTICAL',{name:k, gap:8, cross:'CENTER', w:120}); add(c, svg(SVG.icons[k],48,k)); add(c, await T(k.replace(/-/g,' '),{style:'Body/S', color:HEX.muted, align:'CENTER', w:120})); add(ic,c); }
+  // spacing
+  add(b, rule(1296,'line'), {fill:true});
+  add(b, await T('Space and size',{style:'Display/M'}));
+  const spr=AL('HORIZONTAL',{name:'Spacing', gap:24, cross:'MAX'}); add(b,spr);
+  for(const n of [4,8,12,16,24,36,56,72]){ const c=AL('VERTICAL',{name:'space/'+n, gap:6, cross:'CENTER'}); const r=figma.createRectangle(); r.resize(n,n); fillWith(r,'felt'); add(c,r); add(c, await T(String(n),{style:'Body/S', color:HEX.muted})); add(spr,c); }
+  add(b, await T('Band 84 px desktop / 112 px mobile · product sheet 420 px · hairlines 1 px · rules 1.5 px graphite · square corners everywhere: the brand folds, it doesn’t round.',{style:'Body/S', color:HEX.muted, w:900}));
+  place(b);
+}
+
+/* ---------- 3. components ---------- */
+const COMP = {};
+async function compSet(name, variants, parent, desc){
+  const comps=[];
+  for(const [vname, build] of variants){ const c=figma.createComponent(); c.name=vname; await build(c); comps.push(c); }
+  const set=figma.combineAsVariants(comps, parent);
+  set.name=name; set.layoutMode='HORIZONTAL'; set.itemSpacing=32; set.paddingTop=set.paddingBottom=set.paddingLeft=set.paddingRight=32; set.layoutWrap='WRAP'; set.counterAxisSpacing=32;
+  set.primaryAxisSizingMode='AUTO'; set.counterAxisSizingMode='AUTO';
+  if(desc) set.description=desc;
+  COMP[name]={}; for(const c of comps) COMP[name][c.name]=c;
+  return set;
+}
+function asAL(c, dir, o){ o=o||{}; c.layoutMode=dir; c.itemSpacing=o.gap||0; const p=o.pad||[0,0,0,0]; c.paddingTop=p[0]; c.paddingRight=p[1]; c.paddingBottom=p[2]; c.paddingLeft=p[3];
+  if(dir==='VERTICAL'){ c.primaryAxisSizingMode='AUTO'; c.counterAxisSizingMode=o.w?'FIXED':'AUTO'; } else { c.primaryAxisSizingMode=o.w?'FIXED':'AUTO'; c.counterAxisSizingMode='AUTO'; }
+  if(o.w) c.resize(o.w,10); c.fills=[]; if(o.fill) fillWith(c,o.fill); c.primaryAxisAlignItems=o.align||'MIN'; c.counterAxisAlignItems=o.cross||'MIN'; c.clipsContent=false; }
+function inst(set, variant){ return COMP[set][variant].createInstance(); }
+const shadowText=[{type:'DROP_SHADOW', color:{r:0,g:0,b:0,a:.9}, offset:{x:0,y:0}, radius:2, spread:0, visible:true, blendMode:'NORMAL'},{type:'DROP_SHADOW', color:{r:0,g:0,b:0,a:.5}, offset:{x:0,y:2}, radius:14, spread:0, visible:true, blendMode:'NORMAL'}];
+
+async function components(){
+  await newPage('04 Components');
+  const b=await board('Components','Fold Supply · 04','Square, ruled and quiet, so the room stays the hero. Every component uses the colour variables and text styles from Foundations. Variants cover the states the shop actually uses.');
+  const grid=AL('VERTICAL',{name:'Component sets', gap:56}); add(b,grid,{fill:true});
+  async function section(title, note, set){ const s=AL('VERTICAL',{name:title, gap:14}); add(grid,s,{fill:true}); add(s, await T(title,{style:'Display/S'})); if(note) add(s, await T(note,{style:'Body/S', color:HEX.muted, w:900})); add(s,set); }
+
+  // Button
+  const btn=async(c,kind,label)=>{ asAL(c,'HORIZONTAL',{pad:kind==='Link'?[4,0,4,0]:[0,22,0,22], cross:'CENTER', align:'CENTER'}); c.counterAxisSizingMode='FIXED'; c.resize(c.width, kind==='Link'?28:48);
+    if(kind==='Primary') fillWith(c,'graphite'); if(kind==='Secondary') strokeWith(c,'graphite',1.5); if(kind==='Evening') fillWith(c,'lamp');
+    const t=await T(label,{style:'UI/Button', color: kind==='Primary'?HEX.white:HEX.graphite}); if(kind==='Link'){ t.textDecoration='UNDERLINE'; } add(c,t); };
+  const sBtn=await compSet('Button',[['Type=Primary',c=>btn(c,'Primary','Add to bag · £49')],['Type=Secondary',c=>btn(c,'Secondary','I’ll explore myself')],['Type=Evening',c=>btn(c,'Evening','See the Desk Set · £76')],['Type=Link',c=>btn(c,'Link','Look closer')]], figma.currentPage,'Square, 48 px tall. Prices sit inside the label so the action and its cost read together.');
+  await section('Button','Primary graphite, secondary hairline, evening lamp amber (only on graphite), text link for in-sheet actions.', sBtn);
+
+  // Chip
+  const chip=async(c,label,dark)=>{ asAL(c,'HORIZONTAL',{pad:[7,12,7,12], cross:'CENTER', fill: dark?'graphite':'studio'}); add(c, await T(label,{style:'UI/Label', color: dark?HEX.studioWhite:HEX.graphite})); };
+  const sChip=await compSet('Chip',[['Kind=Credit',c=>chip(c,'A concept shop by Yas Dastan',true)],['Kind=Nav',c=>chip(c,'How it works',true)],['Kind=Clock',async c=>{ await chip(c,'On the desk',true); add(c, await T(' 09:00',{style:'Price/M', color:HEX.studioWhite})); }]], figma.currentPage);
+  await section('Chip','Small solid chips at the top of the scene: the permanent credit, How it works, Contact, and the clock.', sChip);
+
+  // Pin
+  const pin=async(c,kind,pl)=>{
+    const label=kind==='Product'?'Folding Laptop Stand · £49':'Help and care';
+    const lab=AL('HORIZONTAL',{name:'Label', pad:kind==='Product'?[8,13,8,13]:[6,10,6,10], fill: kind==='Product'?'studio':'graphite'});
+    add(lab, await T(label,{style:'UI/Label', color: kind==='Product'?HEX.graphite:HEX.studioWhite}));
+    const stem=figma.createRectangle(); stem.name='Stem'; fillWith(stem,'studio');
+    const dot=figma.createEllipse(); dot.name='Dot'; dot.resize(10,10); fillWith(dot, kind==='Product'?'studio':'graphite'); if(kind==='Room') strokeWith(dot,'studio',3);
+    const vertical=(pl==='Up'||pl==='Down'); stem.resize(vertical?1.5:18, vertical?20:1.5);
+    asAL(c, vertical?'VERTICAL':'HORIZONTAL',{cross:'CENTER'});
+    const order = pl==='Up'?[lab,stem,dot]: pl==='Down'?[dot,stem,lab]: pl==='Left'?[lab,stem,dot]:[dot,stem,lab];
+    for(const n of order) add(c,n);
+  };
+  const pv=[]; for(const k of ['Product','Room']) for(const p of ['Up','Down','Left','Right']) pv.push([`Kind=${k}, Placement=${p}`, c=>pin(c,k,p)]);
+  const sPin=await compSet('Pin', pv, figma.currentPage,'Products are priced studio chips; room objects are quieter graphite labels. Each label picks the side of its dot that covers nothing.');
+  sPin.fills=[solid(HEX.kraft,.35)];
+  await section('Pin (label on the scene)','The placement system tries up, down, left, right and keeps clear of the subtitle, the chips, the rail and other labels.', sPin);
+
+  // Subtitle
+  const sub=async(c,eve)=>{ asAL(c,'VERTICAL',{pad:[20,40,20,40], gap:4, cross:'CENTER', w:860}); c.fills=[solid(eve?'#2B2621':'#B98A5C')];
+    const e=await T(eve?'18:00 · Evening':'09:00 · Set out',{style:'UI/Eyebrow', color:HEX.studio, align:'CENTER'}); e.effects=shadowText; add(c,e);
+    const h=await T(eve?'Same desk. Different evening':'That’s the whole desk.',{style:'Subtitle/Desktop', color:HEX.white, align:'CENTER'}); h.effects=shadowText; add(c,h);
+    const row=AL('HORIZONTAL',{name:'Links', gap:22}); add(c,row);
+    const l1=await T('See the Desk Set · £76',{style:'UI/Button', color: eve?HEX.lamp:HEX.white}); l1.textDecoration='UNDERLINE'; l1.effects=shadowText; add(row,l1);
+    const l2=await T('More',{style:'UI/Button', color:HEX.white}); l2.textDecoration='UNDERLINE'; l2.effects=shadowText; add(row,l2);
+    const g=await T(eve?'That’s the day     ▶ Play the day':'◉  Click a label to see it up close     ▶ Play the day',{style:'UI/Label', color:HEX.white, align:'CENTER'}); g.effects=shadowText; add(c,g); };
+  const sSub=await compSet('Subtitle',[['Theme=Day',c=>sub(c,false)],['Theme=Evening',c=>sub(c,true)]], figma.currentPage,'Captions as video-game subtitles: one spot, bottom centre, white type with a tight letter shadow. No box, no blur.');
+  await section('Subtitle (desktop caption)','Chosen after comparing a paper tag, a caption band, a light haze and bare type. The scene lifts 7% so products sit above it.', sSub);
+
+  // Mobile guide card
+  const card=async(c,state,eve)=>{
+    if(state==='Closed'){ asAL(c,'HORIZONTAL',{pad:[0,14,0,14], gap:8, cross:'CENTER', fill:'graphite'}); c.counterAxisSizingMode='FIXED'; c.resize(c.width,40); add(c, await T('▴  '+(eve?'18:00 · Evening':'09:00 · Set out'),{style:'UI/Label', color:HEX.studioWhite})); return; }
+    asAL(c,'VERTICAL',{pad:[14,46,12,16], gap:4, w:366, fill: eve?'graphite':'studio'});
+    const ink=eve?HEX.studioWhite:HEX.graphite;
+    const dashes=AL('HORIZONTAL',{name:'Steps', gap:4}); add(c,dashes); for(let i=0;i<7;i++){ const d=figma.createRectangle(); d.resize(22,3); fillWith(d, i<4?(eve?'silver':'muted'):i===4?(eve?'lamp':'graphite'):'line'); add(dashes,d); }
+    add(c, await T(eve?'18:00 · Evening':'09:00 · Set out',{style:'UI/Eyebrow', color: eve?HEX.silver:HEX.muted}));
+    add(c, await T(eve?'Same desk. Different evening':'That’s the whole desk.',{style:'Subtitle/Mobile', color:ink, w:300}));
+    const links=AL('HORIZONTAL',{name:'Links', gap:18}); add(c,links);
+    const a=await T('See the Desk Set · £76',{style:'UI/Button', color: eve?HEX.lamp:ink}); a.textDecoration='UNDERLINE'; add(links,a);
+    const m=await T('More',{style:'UI/Button', color:ink}); m.textDecoration='UNDERLINE'; add(links,m);
+    add(c, rule(300, eve?'felt':'line'), {fill:true});
+    add(c, await T('◉ Tap a label to see it up close     ▶ Play the day',{style:'UI/Label', color:ink, w:300}));
+    const x=await T('✕',{style:'UI/Button', color:ink}); c.appendChild(x); x.layoutPositioning='ABSOLUTE'; x.x=336; x.y=12;
+    const k=corner(18, eve?'lamp':'felt'); c.appendChild(k); k.layoutPositioning='ABSOLUTE'; k.x=0; k.y=0;
+  };
+  const sCard=await compSet('Mobile guide card',[['State=Open, Theme=Day',c=>card(c,'Open',false)],['State=Open, Theme=Evening',c=>card(c,'Open',true)],['State=Closed, Theme=Day',c=>card(c,'Closed',false)],['State=Closed, Theme=Evening',c=>card(c,'Closed',true)]], figma.currentPage,'Phones only. Close it and it folds into a tab that keeps showing the time and step.');
+  await section('Mobile guide card','On phones the subtitle becomes a closeable card, because a thumb covers the bottom of the scene anyway.', sCard);
+
+  // Band
+  const band=async(c,mob)=>{ asAL(c,'HORIZONTAL',{pad:mob?[10,16,10,16]:[0,36,0,36], gap:mob?14:28, cross:'CENTER', fill:'graphite', w:mob?390:1440}); c.counterAxisSizingMode='FIXED'; c.resize(mob?390:1440, mob?112:84);
+    if(!mob) add(c, svg(SVG.wordmarkEve,120,'Wordmark'));
+    const items=mob?['Mat £28','Stand £49','Clips £9','Set £76','Help']:['The desk','Shop','Mat  £28','Stand  £49','Clips  £9','Desk Set  £76','Our approach','Help','Delivery'];
+    const links=AL('HORIZONTAL',{name:'Links', gap:mob?12:26, cross:'CENTER'}); add(c,links,{fill:true}); links.primaryAxisAlignItems='CENTER';
+    for(const [i,s] of items.entries()) add(links, await T(s,{style:'UI/Button', color: i===0&&!mob?HEX.white:HEX.studioWhite}));
+    add(c, await T('Bag · 0',{style:'UI/Button', color:HEX.white})); };
+  const sBand=await compSet('Desk-edge band',[['Size=Desktop',c=>band(c,false)],['Size=Mobile',c=>band(c,true)]], figma.currentPage,'Every section named in plain words, so nobody has to guess that a notebook means Help.');
+  await section('Desk-edge band','The navigation is the front edge of the desk. The room is a second, delightful route; the band is the reliable one.', sBand);
+
+  // Ruler control
+  const ruler=async(c,open)=>{ asAL(c,'VERTICAL',{pad:[14,0,12,0], gap:10, w:364});
+    const top=AL('HORIZONTAL',{name:'Top', gap:8}); add(c,top,{fill:true}); add(top, await T('Fold it',{style:'UI/Label'})); const sp=figma.createFrame(); sp.fills=[]; sp.resize(10,1); add(top,sp,{fill:true}); add(top, await T(open?'Rear height 110 mm':'Folded · 22 mm',{style:'Price/M'}));
+    const track=figma.createFrame(); track.name='Track'; track.resize(364,44); track.fills=[]; track.clipsContent=false; add(c,track);
+    const line=figma.createRectangle(); line.resize(364,2); fillWith(line,'graphite'); track.appendChild(line); line.y=14;
+    const h=figma.createRectangle(); h.name='Handle'; h.resize(20,28); fillWith(h,'graphite'); track.appendChild(h); h.x=open?344:0; h.y=1;
+    const ticks=[0,.18,.33,.46,.58,.69,.79,.89,1]; ticks.forEach((p,i)=>{ const t=figma.createRectangle(); const maj=(i===0||i===3||i===6||i===8); t.resize(maj?1.5:1, maj?12:7); fillWith(t, maj?'graphite':'muted'); track.appendChild(t); t.x=10+p*344; t.y=24; });
+    const lab=AL('HORIZONTAL',{name:'Labels'}); add(c,lab,{fill:true}); lab.primaryAxisAlignItems='SPACE_BETWEEN'; for(const s of ['22 mm','50','80','110 mm']) add(lab, await T(s,{style:'Body/S', color:HEX.muted}));
+    add(c, rule(364,'line'), {fill:true}); };
+  const sRuler=await compSet('Fold control (ruler)',[['State=Folded',c=>ruler(c,false)],['State=Open',c=>ruler(c,true)]], figma.currentPage,'A native range input underneath. Ticks every 10 mm of rear height, placed where the stand really reaches each height, so they aren’t evenly spaced.');
+  await section('Fold control','The product’s own unit is the control: millimetres, not percentages.', sRuler);
+
+  // Tabs
+  const tabs=async(c,sel)=>{ asAL(c,'HORIZONTAL',{gap:18, w:364});
+    const names=['Three-quarter','Side','Rear','From above','Hinge'];
+    for(const [i,n] of names.entries()){ const t=AL('VERTICAL',{name:n, pad:[10,0,8,0]}); const tx=await T(n,{style:'UI/Label', color: i===sel?HEX.graphite:HEX.muted}); add(t,tx); if(i===sel){ const u=rule(tx.width,'graphite',2); add(t,u); const k=corner(8,'felt',true); t.appendChild(k); k.layoutPositioning='ABSOLUTE'; k.x=tx.width+2; k.y=4; } add(c,t); } };
+  const sTabs=await compSet('View tabs',[['Selected=Three-quarter',c=>tabs(c,0)],['Selected=Side',c=>tabs(c,1)],['Selected=Hinge',c=>tabs(c,4)]], figma.currentPage,'Underlined text tabs with the felt fold on the selected one.');
+  await section('View tabs','Camera views of the 3D product. The fold marks the current view.', sTabs);
+
+  // Spec row
+  const spec=async(c,lbl,val)=>{ asAL(c,'HORIZONTAL',{pad:[10,0,10,0], gap:12, w:364}); c.strokes=[solid(HEX.line)]; c.strokeBottomWeight=1; c.strokeTopWeight=0; c.strokeLeftWeight=0; c.strokeRightWeight=0;
+    add(c, await T(lbl,{style:'UI/Label', color:HEX.muted, w:120})); add(c, await T(val,{style:'Body/M', w:232}),{fill:true}); };
+  const sSpec=await compSet('Spec row',[['Kind=Size',c=>spec(c,'Size','700 × 350 × 3 mm')],['Kind=Material',c=>spec(c,'Material','Compressed polyester felt. Clean-cut, unstitched edges.')],['Kind=Not included',c=>spec(c,'Not included','Laptop and cables')]], figma.currentPage,'Ruled rows: sizes before prices, honest about what isn’t included.');
+  await section('Spec row','“Know what fits”: the brand promise as a component.', sSpec);
+
+  // Product row (shop) and bag row
+  const prow=async(c,i)=>{ const [n,p,sz,icn]=PRODUCTS[i]; asAL(c,'HORIZONTAL',{pad:[14,0,14,0], gap:12, w:364, cross:'CENTER'}); c.strokes=[solid(HEX.line)]; c.strokeBottomWeight=1; c.strokeTopWeight=0; c.strokeLeftWeight=0; c.strokeRightWeight=0;
+    add(c, svg(SVG.icons[icn],36,'Icon')); const mid=AL('VERTICAL',{name:'Text', gap:2}); add(c,mid,{fill:true}); add(mid, await T(n,{style:'Display/S', size:18})); add(mid, await T(sz,{style:'Body/S', color:HEX.muted, w:220}),{fill:true});
+    const acts=AL('HORIZONTAL',{name:'Actions', gap:16}); add(mid,acts); for(const a of ['Look closer','Add to bag']){ const t=await T(a,{style:'UI/Label'}); t.textDecoration='UNDERLINE'; add(acts,t); }
+    add(c, await T(p,{style:'Price/M'})); };
+  const sProw=await compSet('Shop row',[['Product=Mat',c=>prow(c,0)],['Product=Stand',c=>prow(c,1)],['Product=Clips',c=>prow(c,2)],['Product=Set',c=>prow(c,3)]], figma.currentPage);
+  await section('Shop row','Icon, name, size first, then price and two text actions.', sProw);
+
+  const brow=async(c,i)=>{ const [n,p,sz,icn]=PRODUCTS[i]; asAL(c,'HORIZONTAL',{pad:[14,0,14,0], gap:12, w:364, cross:'MIN'}); c.strokes=[solid(HEX.line)]; c.strokeBottomWeight=1; c.strokeTopWeight=0; c.strokeLeftWeight=0; c.strokeRightWeight=0;
+    add(c, svg(SVG.icons[icn],36,'Icon')); const mid=AL('VERTICAL',{name:'Text', gap:6}); add(c,mid,{fill:true}); add(mid, await T(n,{style:'Display/S', size:18}));
+    const q=AL('HORIZONTAL',{name:'Quantity', gap:0, cross:'CENTER'}); strokeWith(q,'graphite',1.5); for(const s of ['−','1','+']){ const cell=AL('HORIZONTAL',{name:s, pad:[8,13,8,13]}); add(cell, await T(s,{style:'Price/M'})); add(q,cell); }
+    const qr=AL('HORIZONTAL',{name:'Row', gap:16, cross:'CENTER'}); add(mid,qr); add(qr,q); const rm=await T('Remove',{style:'UI/Label'}); rm.textDecoration='UNDERLINE'; add(qr,rm);
+    add(c, await T(p,{style:'Price/M'})); };
+  const sBrow=await compSet('Bag row',[['Product=Mat',c=>brow(c,0)],['Product=Stand',c=>brow(c,1)],['Product=Clips',c=>brow(c,2)],['Product=Set',c=>brow(c,3)]], figma.currentPage);
+  await section('Bag row','Square stepper, 1 to 5. Remove is a word, not an icon.', sBrow);
+
+  // Swap offer
+  const sSwap=await compSet('Swap offer',[['State=Default',async c=>{ asAL(c,'VERTICAL',{pad:[14,16,14,16], gap:6, w:364}); c.strokes=[solid(HEX.graphite)]; c.strokeWeight=1.5; c.dashPattern=[6,4];
+    add(c, await T('You have all three.',{style:'UI/Button'})); add(c, await T('Swap them for the Desk Set and save £10.',{style:'Body/M', w:330}),{fill:true}); const l=await T('Swap to the Desk Set',{style:'UI/Label'}); l.textDecoration='UNDERLINE'; add(c,l); }]], figma.currentPage,'Appears only when the bag holds the mat, the stand and the clips. Dashed: a crease, the brand’s fold line.');
+  await section('Swap offer','The set is offered at the moment it saves money, not as an upsell before.', sSwap);
+
+  // Totals
+  const sTot=await compSet('Totals',[['Delivery=Paid',async c=>{ await totals(c,'£28','£4.95','£32.95','£47 more and delivery is free.'); }],['Delivery=Free',async c=>{ await totals(c,'£76','Free','£76',null); }]], figma.currentPage);
+  await section('Totals','Delivery is never a surprise: the free-delivery gap is spelled out.', sTot);
+
+  // Field
+  const field=async(c,err)=>{ asAL(c,'VERTICAL',{gap:6, w:364}); add(c, await T('Postcode',{style:'UI/Label'}));
+    const box=AL('HORIZONTAL',{name:'Input', pad:[12,12,12,12], fill:'white'}); add(c,box,{fill:true}); strokeWith(box, err?'error':'graphite', err?2:1.5); add(box, await T(err?'LS1':'LS1 4AP',{style:'Body/L'}));
+    if(err){ const e=AL('HORIZONTAL',{name:'Error', gap:8}); add(c,e,{fill:true}); const ic=AL('HORIZONTAL',{name:'Icon', pad:[0,5,0,5], fill:'error'}); add(ic, await T('!',{style:'UI/Label', color:HEX.white})); add(e,ic);
+      add(e, await T('Enter a full UK postcode, like SW1A 1AA. We need it to work out delivery.',{style:'Body/S', color:HEX.error, w:330}),{fill:true}); } };
+  const sField=await compSet('Field',[['State=Default',c=>field(c,false)],['State=Error',c=>field(c,true)]], figma.currentPage,'Errors use colour, an icon and words, and say how to fix it. Focus moves to the first error.');
+  await section('Field','The failure-recovery path in the brief: a part postcode at checkout.', sField);
+
+  // Toast
+  const sToast=await compSet('Toast',[['Kind=Added',async c=>{ asAL(c,'HORIZONTAL',{pad:[12,18,12,18], gap:10, cross:'CENTER', fill:'graphite'}); add(c, svg(SVG.stop,14,'Fold')); add(c, await T('Desk Mat added. Bag £28. £47 more for free delivery.',{style:'UI/Label', color:HEX.white})); }]], figma.currentPage);
+  await section('Toast','Confirms the add and the delivery maths in one line.', sToast);
+
+  // Day rail
+  const sRail=await compSet('Day rail',[['Step=Set out',async c=>{ asAL(c,'VERTICAL',{gap:0, cross:'MAX', w:140});
+    const steps=['08:55','Empty desk','Desk mat','Laptop stand','Cable clips','Set out','Clocking off','Evening','18:00 · end'];
+    for(const [i,s] of steps.entries()){ const row=AL('HORIZONTAL',{name:s, gap:8, cross:'CENTER', pad:[6,0,6,0]}); add(c,row);
+      const lab=await T(s,{style:(i===0||i===8)?'Price/M':'UI/Label', color:(i===5||i===0||i===8)?HEX.graphite:HEX.muted, size:(i===0||i===8)?12:12}); if(i>0&&i<8&&i!==5) lab.opacity=0; add(row,lab);
+      if(i>0&&i<8){ const m=figma.createRectangle(); m.resize(i===5?11:7, i===5?11:7); if(i<=5) fillWith(m,'graphite'); else { fillWith(m,'studio'); strokeWith(m,'graphite',1.5); } add(row,m); } } }]], figma.currentPage,'Desktop only. Shows where the day starts and ends, names the current step, and every mark is a jump.');
+  await section('Day rail','Answers “how long is this, and can I stop?”', sRail);
+
+  // Intro card
+  const sIntro=await compSet('Intro card',[['Kind=First visit',async c=>{ asAL(c,'VERTICAL',{pad:[34,36,30,36], gap:16, w:560, fill:'studio'});
+    add(c, svg(SVG.wordmark,150,'Wordmark')); add(c, await T('A shop on a desk',{style:'Display/M'}));
+    add(c, await T('Three things for the desk you work at and then live at. This whole room is the shop.',{style:'Body/L', w:488}),{fill:true});
+    const ol=AL('VERTICAL',{name:'Steps'}); add(c,ol,{fill:true}); ol.strokes=[solid(HEX.graphite)]; ol.strokeTopWeight=1.5; ol.strokeBottomWeight=0; ol.strokeLeftWeight=0; ol.strokeRightWeight=0;
+    for(const [h,d] of [['Scroll through a working day.','At nine the desk sets itself out. At six it folds away. Stop anywhere.'],['Click anything with a label.','Turn it, fold it, roll it, see its sizes, and add it to your bag.'],['The room holds the rest.','The notebook is help, the framed print is our approach, the window is delivery. Your bag is a box on the desk.']]){
+      const li=AL('VERTICAL',{name:h, pad:[12,0,12,0], gap:2}); add(ol,li,{fill:true}); li.strokes=[solid(HEX.line)]; li.strokeBottomWeight=1; li.strokeTopWeight=0; li.strokeLeftWeight=0; li.strokeRightWeight=0;
+      add(li, await T(h,{style:'UI/Button'})); add(li, await T(d,{style:'Body/M', w:488}),{fill:true}); }
+    const acts=AL('HORIZONTAL',{name:'Actions', gap:14}); add(c,acts); add(acts, inst('Button','Type=Primary')); add(acts, inst('Button','Type=Secondary'));
+    acts.children[0].children[0].characters='Play the day for me';
+    add(c, await T('A concept shop designed and built by Yas Dastan. Fold Supply is fictional: nothing is for sale.',{style:'Body/S', color:HEX.muted, w:488}),{fill:true});
+    const k=corner(34,'felt',true); c.appendChild(k); k.layoutPositioning='ABSOLUTE'; k.x=526; k.y=0; }]], figma.currentPage,'Shown once per browser; How it works reopens it. Says what happens, how to shop, and who made it.');
+  await section('Intro card','First-time visitors get the rules of the room in three lines, then choose: watch the day, or explore.', sIntro);
+
+  place(b);
+  // component sets were created on the page root; move them into their sections already done via add(); nothing left floating
+}
+async function totals(c, sub, del, tot, note){
+  asAL(c,'VERTICAL',{gap:6, w:364});
+  for(const [a,v,big] of [['Subtotal',sub],['Delivery',del],['Total',tot,1]]){ const r=AL('HORIZONTAL',{name:a, pad:big?[10,0,0,0]:[0,0,0,0]}); add(c,r,{fill:true}); r.primaryAxisAlignItems='SPACE_BETWEEN';
+    if(big){ r.strokes=[solid(HEX.graphite)]; r.strokeTopWeight=1.5; r.strokeBottomWeight=0; r.strokeLeftWeight=0; r.strokeRightWeight=0; }
+    add(r, await T(a,{style:big?'Price/L':'Body/M', size:big?24:16})); add(r, await T(v,{style:big?'Price/L':'Body/M', size:big?24:16})); }
+  if(note) add(c, await T(note,{style:'Body/S', color:HEX.muted}));
+}
+
+/* ---------- 4. page sheets built from instances ---------- */
+async function sheets(){
+  await newPage('05 Page sheets');
+  const b=await board('Page sheets','Fold Supply · 05','The right-hand sheet that opens over the room, composed from the components. Each one belongs to an object: the notebook, the print, the window, the kraft box.');
+  const row=AL('HORIZONTAL',{name:'Sheets', gap:40, wrap:true}); add(b,row,{fill:true}); row.counterAxisSpacing=48;
+  async function sheet(name, eyebrow, title, build){
+    const s=AL('VERTICAL',{name, w:420, pad:[30,28,32,28], gap:12, fill:'studio'}); strokeWith(s,'graphite',1.5);
+    add(s, await T(eyebrow,{style:'UI/Eyebrow', color:HEX.muted})); add(s, await T(title,{style:'Display/M', w:364}),{fill:true});
+    await build(s); const k=corner(30,'felt'); s.appendChild(k); k.layoutPositioning='ABSOLUTE'; k.x=0; k.y=0; add(row,s); return s; }
+  await sheet('Product · Folding Laptop Stand','Natural silver aluminium','Folding Laptop Stand', async s=>{
+    const pl=AL('HORIZONTAL',{name:'Price line', gap:12, cross:'BASELINE'}); add(s,pl); add(pl, await T('£49',{style:'Price/L'})); add(pl, await T('● In stock',{style:'UI/Label', color:HEX.positive})); add(pl, await T('1 stand',{style:'Body/S', color:HEX.muted}));
+    add(s, await T('A silver aluminium stand that raises a laptop above the desk and folds down for storage.',{style:'Body/L', w:364}),{fill:true});
+    add(s, inst('Fold control (ruler)','State=Open')); add(s, inst('View tabs','Selected=Three-quarter'));
+    add(s, inst('Button','Type=Primary'),{fill:true});
+    add(s, await T('Know what fits',{style:'UI/Eyebrow', color:HEX.muted}));
+    for(const [l,v] of [['Open','250 × 220 mm'],['Rear height','110 mm'],['Folded','22 mm envelope'],['Not included','Laptop']]){ const r=inst('Spec row','Kind=Size'); add(s,r); r.findAll(n=>n.type==='TEXT')[0].characters=l; r.findAll(n=>n.type==='TEXT')[1].characters=v; } });
+  await sheet('Shop','Shop','Three things, sized for the desk you’ve got', async s=>{
+    add(s, await T('Every size is listed before the price. Open one to see it at work on the desk.',{style:'Body/L', w:364}),{fill:true});
+    for(const v of ['Product=Mat','Product=Stand','Product=Clips','Product=Set']) add(s, inst('Shop row',v));
+    add(s, await T('Delivery £4.95, free from £75. The Desk Set always ships free.',{style:'Body/S', color:HEX.muted, w:364}),{fill:true}); });
+  await sheet('Bag · all three','Bag · the kraft box','Your bag', async s=>{
+    for(const v of ['Product=Mat','Product=Stand','Product=Clips']) add(s, inst('Bag row',v));
+    add(s, inst('Swap offer','State=Default')); add(s, inst('Totals','Delivery=Free'));
+    const ck=inst('Button','Type=Primary'); add(s,ck,{fill:true}); ck.findOne(n=>n.type==='TEXT').characters='Checkout · £86'; });
+  await sheet('Checkout · postcode error','Checkout','Where should it go?', async s=>{
+    for(const [l,v] of [['Email','alex@example.com'],['Full name','Alex Morgan'],['Address','12 Park Row'],['Town or city','Leeds']]){ const f=inst('Field','State=Default'); add(s,f); const ts=f.findAll(n=>n.type==='TEXT'); ts[0].characters=l; ts[1].characters=v; }
+    add(s, inst('Field','State=Error')); add(s, inst('Totals','Delivery=Free'));
+    add(s, await T('Prototype: no payment is taken and nothing is sent.',{style:'Body/S', color:HEX.muted, w:364}),{fill:true});
+    const pb=inst('Button','Type=Primary'); add(s,pb,{fill:true}); pb.findOne(n=>n.type==='TEXT').characters='Place order · £76'; });
+  await sheet('Order placed','Order FS-4821','That’s work done', async s=>{
+    s.insertChild(0, svg(SVG.stop,64,'Folded stop (animates closed)'));
+    add(s, await T('Desk Set on the way to Leeds, LS1 4AP. It’s dispatched in 1 to 2 working days.',{style:'Body/L', w:364}),{fill:true});
+    for(const [l,v] of [['Paid','£76 (prototype, nothing charged)'],['Confirmation','A real shop would email alex@example.com']]){ const r=inst('Spec row','Kind=Size'); add(s,r); const ts=r.findAll(n=>n.type==='TEXT'); ts[0].characters=l; ts[1].characters=v; }
+    const bb=inst('Button','Type=Primary'); add(s,bb,{fill:true}); bb.findOne(n=>n.type==='TEXT').characters='Back to the desk';
+    add(s, await T('The box lid closes, the stop seals it, the lamp comes on and the scene turns to evening.',{style:'Body/S', color:HEX.muted, w:364}),{fill:true}); });
+  await sheet('Help and care','The notebook','Help and care', async s=>{
+    add(s, inst('View tabs','Selected=Three-quarter'));
+    const tabs=s.children[s.children.length-1]; const names=['Care','Fit','Contact']; const ts=tabs.findAll(n=>n.type==='TEXT'); ts.forEach((t,i)=>{ if(i<3) t.characters=names[i]; else t.parent.visible=false; });
+    for(const [h,d] of [['Desk Mat','Lift loose bits with a soft brush. Blot spills straight away, then spot clean with a lightly damp cloth.'],['Folding Laptop Stand','Wipe with a soft, dry cloth. Fold it before moving it.'],['Cable Clips Pair','Wipe with a damp cloth and dry before use.']]){
+      add(s, rule(364,'graphite',1.5),{fill:true}); add(s, await T(h,{style:'UI/Eyebrow', color:HEX.muted})); add(s, await T(d,{style:'Body/M', w:364}),{fill:true}); } });
+  place(b);
+}
+
+/* ---------- 5. screens ---------- */
+const DESK = [
+  ['d01-intro','Intro (first visit)','Three lines on how the room works, then: Play the day for me, or explore.'],
+  ['d02-empty-desk','08:55 · Empty desk','The scroll starts on an empty desk. Subtitle and guide sit bottom centre.'],
+  ['d03-desk-mat','Desk Mat arrives','The mat unrolls to 700 × 350 mm, with dimension lines.'],
+  ['d04-laptop-stand','Laptop stand opens','The scissor stand opens to its 110 mm rear height.'],
+  ['d05-cable-clips','Cable clips','Two clips, three channels each, with the cable routed through.'],
+  ['d06-set-out','09:00 · Set out (explore)','Everything is on the desk. Product chips and room labels place themselves clear of each other.'],
+  ['d07-clocking-off','17:59 · Clocking off','The laptop goes away and the stand folds flat where it stood.'],
+  ['d08-evening','18:00 · Evening','Same desk, different evening: lamp amber appears.'],
+  ['d09-pdp-mat','Product page · Desk Mat','Roll it with the ruler; the other products lift off and fade.'],
+  ['d10-pdp-stand','Product page · Folding Laptop Stand','Ruler fold control in millimetres, views as tabs.'],
+  ['d11-pdp-stand-laptop','Stand with a laptop on it','Shows the height in use. The laptop is marked not included.'],
+  ['d12-pdp-clips','Product page · Cable Clips Pair','1, 2 or 3 cables in the channels.'],
+  ['d13-pdp-desk-set','Product page · Desk Set','All three for £76 instead of £86, free delivery.'],
+  ['d14-shop','Shop','All four items with sizes before prices.'],
+  ['d15-help','Help and care (the notebook)','Care, fit and contact tabs.'],
+  ['d16-our-approach','Our approach (the framed print)','Make room. Know what fits. Finish the day. And what we don’t claim.'],
+  ['d17-delivery-returns','Delivery and returns (the window)','Delivery £4.95 or free from £75; 30-day change of mind.'],
+  ['d18-bag-all-three','Bag (the kraft box)','The box appears on the desk once the bag isn’t empty. All three in the bag triggers the set offer.'],
+  ['d19-bag-desk-set','Bag after the swap','Swapped to the Desk Set: £10 saved, free delivery.'],
+  ['d20-checkout-postcode-error','Checkout · postcode error','Failure recovery: field error with colour, icon and words; focus moves to it.'],
+  ['d21-order-placed','Order placed','“That’s work done.” The lamp comes on.'],
+  ['d22-evening-box-sealed','Evening with the box sealed','The box pin reads “Order FS-xxxx · packed”.'],
+  ['d23-about','About this project','Full disclaimers, credits and privacy.'],
+  ['d24-contact','Contact','Email and website, from one config file.']
+];
+const MOB = [
+  ['m01-intro','Intro'],['m02-start','Start · guide card'],['m03-set-out','Set out · labels'],['m04-card-closed','Card closed to a tab'],
+  ['m05-pdp-stand','Product page · bottom sheet'],['m06-bag','Bag'],['m07-checkout-error','Checkout · postcode error'],['m08-order-placed','Order placed'],['m09-evening-box-sealed','Evening, box sealed']
+];
+async function screens(){
+  await newPage('07 Screens · Desktop');
+  const b=await board('Desktop screens','Fold Supply · 07','1440 × 900. Each frame is a capture of the live build, so the 3D scene, lighting and shadows are exactly what ships. Captions underneath say what the screen is for.');
+  const g=AL('HORIZONTAL',{name:'Screens', gap:64, wrap:true}); add(b,g,{fill:true}); g.counterAxisSpacing=72;
+  let i=0;
+  for(const [f,n,d] of DESK){ i++; figma.notify(`Placing desktop screens ${i}/${DESK.length}…`,{timeout:900});
+    const c=AL('VERTICAL',{name:n, gap:14}); const fr=await shotFrame(f+'.jpg',1440,900,'D'+String(i).padStart(2,'0')+' '+n); add(c,fr);
+    add(c, await T(String(i).padStart(2,'0')+'  '+n,{style:'Display/S'})); add(c, await T(d,{style:'Body/M', color:HEX.felt, w:1000})); add(g,c); }
+  place(b);
+  await newPage('08 Screens · Mobile');
+  const m=await board('Mobile screens','Fold Supply · 08','390 × 844. The same room, a two-row band, a bottom sheet for pages, and a guide card you can close.');
+  const mg=AL('HORIZONTAL',{name:'Screens', gap:48, wrap:true}); add(m,mg,{fill:true}); mg.counterAxisSpacing=56;
+  i=0;
+  for(const [f,n] of MOB){ i++; const c=AL('VERTICAL',{name:n, gap:12}); add(c, await shotFrame(f+'.jpg',390,844,'M'+String(i).padStart(2,'0')+' '+n)); add(c, await T(String(i).padStart(2,'0')+'  '+n,{style:'UI/Button'})); add(mg,c); }
+  place(m);
+}
+
+/* ---------- 6. flows ---------- */
+async function flows(){
+  await newPage('06 Flows');
+  const b=await board('Flows','Fold Supply · 06','The two journeys the brief asks to prototype: buying the Desk Set, and recovering from a checkout error.');
+  async function flow(title, steps){
+    add(b, await T(title,{style:'Display/S'}));
+    const r=AL('HORIZONTAL',{name:title, gap:0, cross:'CENTER'}); add(b,r);
+    for(const [k,[f,cap]] of steps.entries()){
+      const c=AL('VERTICAL',{name:cap, gap:10, w:300}); add(c, await shotFrame(f+'.jpg',300,188,cap)); add(c, await T(String(k+1)+'. '+cap,{style:'Body/S', w:300}),{fill:true}); add(r,c);
+      if(k<steps.length-1){ const a=figma.createLine(); a.name='Arrow'; a.resize(44,0); a.strokes=[solid(HEX.graphite)]; a.strokeWeight=1.5; a.strokeCap='ARROW_LINES'; const w=AL('HORIZONTAL',{name:'→', pad:[0,10,0,10]}); add(w,a); add(r,w); }
+    }
+  }
+  await flow('Buy the Desk Set',[['d06-set-out','Desk set out: every product is labelled'],['d13-pdp-desk-set','Desk Set page: £76, free delivery'],['d18-bag-all-three','Or add all three: the box offers the swap'],['d19-bag-desk-set','Swapped: £10 saved'],['d21-order-placed','Order placed: that’s work done'],['d22-evening-box-sealed','Evening, box sealed']]);
+  await flow('Recover from a postcode error',[['d20-checkout-postcode-error','“LS1” is rejected: colour, icon, words, focus'],['d21-order-placed','Fixed to “LS1 4AP”: the order goes through']]);
+  place(b);
+}
+
+/* ---------- 7. cover, brief, process, credits ---------- */
+async function cover(fb){
+  const p=figma.root.children[0]; p.name='00 Cover'; await figma.setCurrentPageAsync(p); pageY=0;
+  const c=figma.createFrame(); c.name='Cover'; c.resize(1920,1080); fillWith(c,'studio'); p.appendChild(c);
+  const hero=await shotFrame('d08-evening.jpg',1100,688,'Hero'); c.appendChild(hero); hero.x=760; hero.y=196;
+  const wm=svg(SVG.wordmark,300,'Wordmark'); c.appendChild(wm); wm.x=96; wm.y=96;
+  const t=await T('A shop on a desk',{style:'Display/XL', size:84, w:620}); c.appendChild(t); t.x=96; t.y=330;
+  const s=await T('Brand identity, e-commerce UX/UI and an immersive 3D shop for three desk accessories. A self-initiated concept with a fictional brand.',{style:'Body/L', size:22, color:HEX.felt, w:600}); c.appendChild(s); s.x=96; s.y=t.y+t.height+28;
+  const by=await T('Designed by Yas Dastan · 2026',{style:'UI/Button', size:18}); c.appendChild(by); by.x=96; by.y=s.y+s.height+40;
+  const live=await T('Live: '+LIVE.replace('https://',''),{style:'Body/M', color:HEX.muted}); c.appendChild(live); live.x=96; live.y=by.y+40;
+  const credit=await T('Concept, brand, UX/UI, art direction and decisions: Yas Dastan. Built with Claude (Anthropic) as design and development partner.',{style:'Body/S', color:HEX.muted, w:600}); c.appendChild(credit); credit.x=96; credit.y=990;
+  const k=corner(72,'felt'); c.appendChild(k); k.x=0; k.y=0;
+  if(fb.length){ const n=await T('Font note: '+fb.join(', ')+' wasn’t installed, so a fallback was used. Install Chillax (Fontshare) and Gentium Book Plus (Google Fonts), then run the plugin again in a new file.',{style:'Body/S', color:HEX.error, w:900}); c.appendChild(n); n.x=96; n.y=1120; }
+}
+async function brief(){
+  await newPage('01 Brief');
+  const b=await board('The brief','Fold Supply · 01','A UK shop for three desk accessories, for people whose desk is also where they live in the evening. Every template, a set purchase and one failure-recovery path.');
+  const tbl=AL('VERTICAL',{name:'Catalogue'}); add(b,tbl,{fill:true});
+  for(const [n,p,sz,icn] of PRODUCTS){ const r=AL('HORIZONTAL',{name:n, pad:[14,0,14,0], gap:24, cross:'CENTER'}); add(tbl,r,{fill:true}); r.strokes=[solid(HEX.line)]; r.strokeBottomWeight=1; r.strokeTopWeight=0; r.strokeLeftWeight=0; r.strokeRightWeight=0;
+    add(r, svg(SVG.icons[icn],40,'Icon')); add(r, await T(n,{style:'Display/S', w:300})); add(r, await T(sz,{style:'Body/M', w:700}),{fill:true}); add(r, await T(p,{style:'Price/L'})); }
+  const cols=AL('HORIZONTAL',{name:'Brief details', gap:48}); add(b,cols,{fill:true});
+  const blocks=[['Commerce','Delivery £4.95, free from £75. Desk Set £76 against £86 separately. 30-day change of mind. UK postcodes.'],['Templates','Home, shop, product page × 3, set, bag, checkout, confirmation, help, our approach, delivery and returns.'],['Prototype','The Desk Set purchase end to end, plus one failure-recovery path.'],['Weightings','Clarity 25%, identity 20%, recovery 20%. The rest: craft, accessibility, content.'],['Voice','Plain and measured. Numbers before adjectives. No recycled-content, carbon or lifetime claims. Laptop and cables not included, said near them.'],['Research','Baymard and NN/g on product pages and checkout; W3C on motion and reduced motion; Ofcom on UK device use. Fit info and delivery cost shown up front.']];
+  for(const [h,d] of blocks){ const c=AL('VERTICAL',{name:h, gap:8, w:400}); add(c, rule(400,'graphite',1.5),{fill:true}); add(c, await T(h,{style:'UI/Eyebrow', color:HEX.muted})); add(c, await T(d,{style:'Body/M', w:400}),{fill:true}); add(cols,c); }
+  cols.layoutWrap='WRAP'; cols.counterAxisSpacing=32;
+  place(b);
+}
+async function process(){
+  await newPage('02 Process');
+  const b=await board('What we decided, and why','Fold Supply · 02','The running record of the project, from the brief to the shipped site. Highlighted rows are Yas’s calls: the feedback and decisions that steered each round. Rejected routes stay in, so the reasoning can be traced.');
+  const head=AL('HORIZONTAL',{name:'Head', pad:[10,0,10,0]}); add(b,head,{fill:true});
+  for(const [s,w] of [['Step',200],['What happened',640],['Decision / evidence',456]]) add(head, await T(s,{style:'UI/Eyebrow', color:HEX.muted, w}));
+  for(const [i,[step,when,what,dec,yas]] of LOG.entries()){
+    if(i%6===0) figma.notify(`Writing the process log ${i+1}/${LOG.length}…`,{timeout:900});
+    const r=AL('HORIZONTAL',{name:step, pad:[14,12,14,12], gap:0}); add(b,r,{fill:true}); r.strokes=[solid(HEX.line)]; r.strokeBottomWeight=1; r.strokeTopWeight=0; r.strokeLeftWeight=0; r.strokeRightWeight=0;
+    if(yas) r.fills=[solid(HEX.note)];
+    const s=AL('VERTICAL',{name:'Step', gap:2, w:188}); add(r,s); add(s, await T(step,{style:'UI/Button', w:180})); add(s, await T(when,{style:'Body/S', color:HEX.muted, w:180}));
+    add(r, await T(what,{style:'Body/M', w:640})); add(r, await T(dec,{style:'Body/M', color:HEX.felt, w:444}));
+  }
+  place(b);
+}
+async function credits(){
+  await newPage('09 Credits and disclosure');
+  const b=await board('Credits and disclosure','Fold Supply · 09',null,1100);
+  const items=[['Whose work this is','The concept, brand identity, shop experience, interface and interaction design, writing and art direction are Yas Dastan’s original work. © 2026 Yas Dastan. All rights reserved.'],
+    ['Fictional brand','Fold Supply is not a real company. Nothing is for sale; prices, stock, delivery and returns are part of a design brief.'],
+    ['How it was made','Designed and directed by Yas Dastan. Built with Claude (Anthropic) as design and development partner: Yas set the brief, chose every direction and gave the feedback recorded on the Process page.'],
+    ['Images','The room image and product photos are AI-generated concept images, art-directed by Yas. They don’t show real, tested products.'],
+    ['Lighting','Hotel Room HDRI by Greg Zaal, Poly Haven (CC0).'],['Material textures','Caban, Poly Haven (CC0). Metal Substance 005, ambientCG (CC0).'],
+    ['Type','Chillax by Indian Type Foundry (Fontshare). Gentium Book Plus by SIL (Open Font License).'],['3D','three.js (MIT).'],
+    ['Live site',LIVE],['Contact','yas002dastan@gmail.com']];
+  for(const [h,d] of items){ const r=AL('HORIZONTAL',{name:h, pad:[14,0,14,0], gap:24}); add(b,r,{fill:true}); r.strokes=[solid(HEX.line)]; r.strokeBottomWeight=1; r.strokeTopWeight=0; r.strokeLeftWeight=0; r.strokeRightWeight=0;
+    add(r, await T(h,{style:'UI/Label', color:HEX.muted, w:220})); add(r, await T(d,{style:'Body/M', w:700}),{fill:true}); }
+  place(b);
+}
+
+/* ---------- run ---------- */
+async function main(){
+  if(figma.editorType!=='figma'){ figma.closePlugin('Open a Figma design file (not FigJam or Slides) and run it again.'); return; }
+  figma.notify('Building the Fold Supply design file… this takes a minute.',{timeout:4000});
+  await loadFonts();
+  makeTextStyles();
+  const themes=makeVariables();
+  await brief();
+  await process();
+  await foundations(themes.evening);
+  await components();
+  await sheets();
+  await flows();
+  await screens();
+  await credits();
+  await cover(fallbacks);
+  await figma.setCurrentPageAsync(figma.root.children[0]);
+  figma.viewport.scrollAndZoomIntoView(figma.currentPage.children);
+  figma.closePlugin(fallbacks.length?'Done. Some fonts were missing, see the note on the cover.':'Done: 10 pages built.');
+}
+main().catch(e=>{ console.error(e); figma.closePlugin('Something went wrong: '+(e&&e.message?e.message:e)); });

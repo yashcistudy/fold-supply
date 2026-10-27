@@ -1,0 +1,16 @@
+{
+  "name": "Fold Supply \u00b7 Design file",
+  "id": "fold-supply-design-file",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://yashcistudy.github.io"
+    ],
+    "reasoning": "Loads the screen captures of the live Fold Supply site from its GitHub Pages address."
+  }
+}
