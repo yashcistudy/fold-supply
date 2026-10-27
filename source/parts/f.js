@@ -102,7 +102,36 @@ html{--bandH:84px}
   #guide,#play{font-size:13px!important}
   .chips .left button,.proto-tag{font-size:11.5px!important;padding:6px 9px!important}
   .chips .clock{display:none}
+  /* phones: the subtitle becomes a floating card you can close */
+  #subs{left:12px;right:12px;width:auto;transform:none;bottom:calc(var(--bandH) + 12px);background:var(--studio);color:var(--graphite);text-shadow:none;
+    padding:14px 46px 12px 16px;text-align:left;align-items:stretch;gap:0;box-shadow:0 10px 28px rgba(20,12,6,.28);pointer-events:auto}
+  #subs::before{content:"";position:absolute;left:0;top:0;width:18px;height:18px;background:var(--felt);clip-path:polygon(0 0,100% 0,0 100%)}
+  #subs .cap{justify-content:flex-start;color:var(--graphite)!important;text-shadow:none!important;column-gap:18px}
+  #subs .cap .steps{display:flex!important;flex-basis:100%;margin:0 0 6px}
+  #subs .cap .eyebrow{color:var(--muted)!important;opacity:1}
+  #subs .cap h1,#subs .cap h2{color:var(--graphite)}
+  #subs .cap .body{color:var(--graphite)}
+  #subs .cap .more,#subs .cap .row .btn{color:var(--graphite)!important;text-shadow:none!important}
+  #subs .side{justify-content:space-between;border-top:1px solid #CFCDC8;padding-top:8px;margin-top:8px;opacity:1}
+  #guide,#play{color:var(--graphite)!important;text-shadow:none}
+  #guide svg,#play svg{filter:none}
+  .eve #subs{background:var(--graphite);color:var(--studio-white)}
+  .eve #subs::before{background:var(--lamp)}
+  .eve #subs .cap .eyebrow{color:var(--silver)!important}
+  .eve #subs .cap h1,.eve #subs .cap h2,.eve #subs .cap .body,.eve #subs .cap .more,.eve #guide,.eve #play{color:var(--studio-white)!important}
+  .eve #subs .cap .row .btn{color:var(--lamp)!important}
+  .eve #subs .side{border-top-color:#3A3B3D}
+  #subsX{display:grid;place-items:center;position:absolute;right:4px;top:4px;width:40px;height:40px;border:0;background:none;color:inherit;cursor:pointer;padding:0}
+  #subsX svg{width:14px;height:14px}
+  /* closed: a small tab with the current step, tap to bring the card back */
+  #subs.min{left:auto;right:12px;padding:0;background:var(--graphite);color:var(--studio-white);box-shadow:0 6px 18px rgba(20,12,6,.3)}
+  #subs.min::before{display:none}
+  #subs.min .cap,#subs.min .side,#subs.min #subsX{display:none!important}
+  #subsTab{display:none}
+  #subs.min #subsTab{display:flex;align-items:center;gap:8px;border:0;background:none;color:inherit;font:600 12.5px var(--display);padding:0 14px;min-height:40px;cursor:pointer;white-space:nowrap;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis}
+  #subsTab svg{width:10px;height:10px;flex:none}
 }
+@media (min-width:761px){ #subsX,#subsTab{display:none!important} }
 /* ---------- intro ---------- */
 #intro{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(30,31,33,.62)}
 #intro[hidden]{display:none}
@@ -133,6 +162,16 @@ const side=document.createElement('div'); side.className='side';
 side.appendChild(guide);
 const play=document.createElement('button'); play.id='play'; play.type='button';
 side.appendChild(play); subs.appendChild(side); uiEl.appendChild(subs);
+// phones: close the card; it folds down to a tab with the current step
+const subsX=document.createElement('button'); subsX.id='subsX'; subsX.type='button'; subsX.setAttribute('aria-label','Close the guide');
+subsX.innerHTML='<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.8"/></svg>';
+const subsTab=document.createElement('button'); subsTab.id='subsTab'; subsTab.type='button'; subsTab.setAttribute('aria-label','Show the guide');
+subs.appendChild(subsX); subs.appendChild(subsTab);
+function syncTab(){ const e=capEl.querySelector('.eyebrow'); subsTab.innerHTML='<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>'+(e?e.textContent:'Guide')+'</span>'; }
+new MutationObserver(syncTab).observe(capEl,{childList:true}); syncTab();
+function setMin(m){ subs.classList.toggle('min',m); try{ sessionStorage.setItem('fold-subs-min',m?'1':''); }catch(e){} if(m) subsTab.focus({preventScroll:true}); else subsX.focus({preventScroll:true}); kick(); }
+subsX.addEventListener('click',()=>setMin(true)); subsTab.addEventListener('click',()=>setMin(false));
+try{ if(sessionStorage.getItem('fold-subs-min')==='1') subs.classList.add('min'); }catch(e){}
 capEl.classList.remove('frost'); guide.classList.remove('frost');
 // lift the scene a little on desktop so the products sit above the subtitle zone
 let shift=0;
