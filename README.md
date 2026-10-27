@@ -52,6 +52,9 @@ Delivery is £4.95, or free from £75.
 ## Built with
 three.js r160, plain HTML, CSS and JavaScript, no build framework. Built with Claude Code as the development partner.
 
+## Your details
+The designer name, email and website address live in **`config.js`** at the top of the repo. Edit that one file and the intro, Contact and About pages all update.
+
 ## Source
 `index.html` is the whole site, generated from `source/`:
 

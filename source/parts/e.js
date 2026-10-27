@@ -178,7 +178,7 @@ function labelRect(pl,x,y,w,h){
 function layoutPins(){
   const bandH=$('#band').offsetHeight;
   const obstacles=[];
-  for(const el of [capEl,$('.chips .clock'),$('#protoTag'),guide]){ if(shown(el)&&!el.classList.contains('off')){ const r=rectOf(el); if(r.x1>r.x0) obstacles.push(r); } }
+  for(const el of [$('#subs')||capEl,$('.chips .clock'),$('.chips .left')]){ if(shown(el)&&!el.classList.contains('off')){ const r=rectOf(el); if(r.x1>r.x0) obstacles.push(r); } }
   if(shown(rail)) obstacles.push({x0:size.w-150,y0:70,x1:size.w,y1:size.h-bandH});
   const list=[];
   for(const id of ['mat','stand','clips']) list.push([id,pins[id]]);
