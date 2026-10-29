@@ -306,7 +306,7 @@ function overlays(){
 function readScroll(){
   const tr=$('#track'), max=tr.offsetHeight-innerHeight;
   pTarget=clamp((scrollY-tr.offsetTop)/max,0,1);
-  uiEl.classList.toggle('gone',scrollY>tr.offsetTop+max+innerHeight*.35||mode==='product');
+  uiEl.classList.toggle('gone',scrollY>tr.offsetTop+max+innerHeight*.35||mode==='product'||mode==='page');
   kick();
 }
 function resize(){

@@ -1176,7 +1176,7 @@ function overlays(){
 function readScroll(){
   const tr=$('#track'), max=tr.offsetHeight-innerHeight;
   pTarget=clamp((scrollY-tr.offsetTop)/max,0,1);
-  uiEl.classList.toggle('gone',scrollY>tr.offsetTop+max+innerHeight*.35||mode==='product');
+  uiEl.classList.toggle('gone',scrollY>tr.offsetTop+max+innerHeight*.35||mode==='product'||mode==='page');
   kick();
 }
 function resize(){
@@ -1430,8 +1430,8 @@ panel.addEventListener('submit',e=>{
 /* ---- the kraft box: the bag lives on the desk ---- */
 const KRAFT=new THREE.MeshStandardMaterial({color:0xA27B4F,roughness:.9,metalness:0,envMapIntensity:.45});
 const KRAFT_IN=new THREE.MeshStandardMaterial({color:0xA8875F,roughness:.92,envMapIntensity:.4});
-const BX={x:452,z:212,w:130,d:96,h:60,t:2};
-const boxG=new THREE.Group(); boxG.position.set(BX.x,0,BX.z); boxG.rotation.y=.22; scene.add(boxG);
+const BX={x:450,z:18,w:130,d:96,h:60,t:2}; // clear desk between the mat, the plant and the mug
+const boxG=new THREE.Group(); boxG.position.set(BX.x,0,BX.z); boxG.rotation.y=.12; scene.add(boxG);
 const boxBody=new THREE.Group(); boxG.add(boxBody);
 const wall=(w,h,d,x,y,z,m)=>{ const o=mk(new THREE.BoxGeometry(w,h,d),m||KRAFT); o.position.set(x,y,z); boxBody.add(o); return o; };
 wall(BX.w,BX.t,BX.d,0,BX.t/2,0,KRAFT_IN);
@@ -1466,7 +1466,7 @@ overlays=function(){
   if(lidT!==tL){ lidT=Math.abs(tL-lidT)<k*.8?tL:lidT+Math.sign(tL-lidT)*k*.8; moved=true; }
   const e=ease(boxT);
   boxG.visible=boxT>0&&trans<.01; boxBody.scale.set(1,Math.max(.001,e),1); boxG.position.y=0;
-  lidP.rotation.x=-ease(lidT)*1.95; sticker.visible=sealed&&lidT<.05;
+  lidP.rotation.x=-ease(lidT)*2.35; sticker.visible=sealed&&lidT<.05;
   if(moved) kick();
   requestAnimationFrame(boxTick);
 })();
