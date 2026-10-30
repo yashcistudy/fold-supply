@@ -64,7 +64,7 @@ async function T(str, o){
   t.fills=[solid(o.color||HEX.graphite)];
   if(o.caps) t.textCase='UPPER';
   if(o.align) t.textAlignHorizontal=o.align;
-  if(o.w){ t.textAutoResize='HEIGHT'; t.resize(o.w, Math.max(1,t.height)); } else t.textAutoResize='WIDTH_AND_HEIGHT';
+  if(o.w){ t.resize(o.w, Math.max(1,t.height)); t.textAutoResize='HEIGHT'; } else t.textAutoResize='WIDTH_AND_HEIGHT';
   if(o.name) t.name=o.name;
   return t;
 }
@@ -73,9 +73,9 @@ function AL(dir, o){
   const f=figma.createFrame(); f.name=o.name||'Frame'; f.layoutMode=dir;
   f.itemSpacing=o.gap||0;
   const p=o.pad||[0,0,0,0]; f.paddingTop=p[0]; f.paddingRight=p[1]; f.paddingBottom=p[2]; f.paddingLeft=p[3];
+  if(o.w) f.resize(o.w, 10); // resize first: in Figma it resets both axes to FIXED
   if(dir==='VERTICAL'){ f.primaryAxisSizingMode='AUTO'; f.counterAxisSizingMode=o.w?'FIXED':'AUTO'; }
   else { f.primaryAxisSizingMode=o.w?'FIXED':'AUTO'; f.counterAxisSizingMode='AUTO'; }
-  if(o.w) f.resize(o.w, 10);
   f.fills=[]; if(o.fill) fillWith(f, o.fill);
   f.primaryAxisAlignItems=o.align||'MIN'; f.counterAxisAlignItems=o.cross||'MIN';
   f.clipsContent=false;
@@ -230,8 +230,8 @@ async function compSet(name, variants, parent, desc){
   return set;
 }
 function asAL(c, dir, o){ o=o||{}; c.layoutMode=dir; c.itemSpacing=o.gap||0; const p=o.pad||[0,0,0,0]; c.paddingTop=p[0]; c.paddingRight=p[1]; c.paddingBottom=p[2]; c.paddingLeft=p[3];
-  if(dir==='VERTICAL'){ c.primaryAxisSizingMode='AUTO'; c.counterAxisSizingMode=o.w?'FIXED':'AUTO'; } else { c.primaryAxisSizingMode=o.w?'FIXED':'AUTO'; c.counterAxisSizingMode='AUTO'; }
-  if(o.w) c.resize(o.w,10); c.fills=[]; if(o.fill) fillWith(c,o.fill); c.primaryAxisAlignItems=o.align||'MIN'; c.counterAxisAlignItems=o.cross||'MIN'; c.clipsContent=false; }
+  if(o.w) c.resize(o.w,10); // resize first: in Figma it resets both axes to FIXED
+  if(dir==='VERTICAL'){ c.primaryAxisSizingMode='AUTO'; c.counterAxisSizingMode=o.w?'FIXED':'AUTO'; } else { c.primaryAxisSizingMode=o.w?'FIXED':'AUTO'; c.counterAxisSizingMode='AUTO'; } c.fills=[]; if(o.fill) fillWith(c,o.fill); c.primaryAxisAlignItems=o.align||'MIN'; c.counterAxisAlignItems=o.cross||'MIN'; c.clipsContent=false; }
 function inst(set, variant){ return COMP[set][variant].createInstance(); }
 const shadowText=[{type:'DROP_SHADOW', color:{r:0,g:0,b:0,a:.9}, offset:{x:0,y:0}, radius:2, spread:0, visible:true, blendMode:'NORMAL'},{type:'DROP_SHADOW', color:{r:0,g:0,b:0,a:.5}, offset:{x:0,y:2}, radius:14, spread:0, visible:true, blendMode:'NORMAL'}];
 
@@ -242,7 +242,7 @@ async function components(){
   async function section(title, note, set){ const s=AL('VERTICAL',{name:title, gap:14}); add(grid,s,{fill:true}); add(s, await T(title,{style:'Display/S'})); if(note) add(s, await T(note,{style:'Body/S', color:HEX.muted, w:900})); add(s,set); }
 
   // Button
-  const btn=async(c,kind,label)=>{ asAL(c,'HORIZONTAL',{pad:kind==='Link'?[4,0,4,0]:[0,22,0,22], cross:'CENTER', align:'CENTER'}); c.counterAxisSizingMode='FIXED'; c.resize(c.width, kind==='Link'?28:48);
+  const btn=async(c,kind,label)=>{ asAL(c,'HORIZONTAL',{pad:kind==='Link'?[4,0,4,0]:[0,22,0,22], cross:'CENTER', align:'CENTER'}); c.resize(c.width, kind==='Link'?28:48); c.primaryAxisSizingMode='AUTO'; c.counterAxisSizingMode='FIXED';
     if(kind==='Primary') fillWith(c,'graphite'); if(kind==='Secondary') strokeWith(c,'graphite',1.5); if(kind==='Evening') fillWith(c,'lamp');
     const t=await T(label,{style:'UI/Button', color: kind==='Primary'?HEX.white:HEX.graphite}); if(kind==='Link'){ t.textDecoration='UNDERLINE'; } add(c,t); };
   const sBtn=await compSet('Button',[['Type=Primary',c=>btn(c,'Primary','Add to bag · £49')],['Type=Secondary',c=>btn(c,'Secondary','I’ll explore myself')],['Type=Evening',c=>btn(c,'Evening','See the Desk Set · £76')],['Type=Link',c=>btn(c,'Link','Look closer')]], figma.currentPage,'Square, 48 px tall. Prices sit inside the label so the action and its cost read together.');
@@ -283,7 +283,7 @@ async function components(){
 
   // Mobile guide card
   const card=async(c,state,eve)=>{
-    if(state==='Closed'){ asAL(c,'HORIZONTAL',{pad:[0,14,0,14], gap:8, cross:'CENTER', fill:'graphite'}); c.counterAxisSizingMode='FIXED'; c.resize(c.width,40); add(c, await T('▴  '+(eve?'18:00 · Evening':'09:00 · Set out'),{style:'UI/Label', color:HEX.studioWhite})); return; }
+    if(state==='Closed'){ asAL(c,'HORIZONTAL',{pad:[0,14,0,14], gap:8, cross:'CENTER', fill:'graphite'}); c.resize(c.width,40); c.primaryAxisSizingMode='AUTO'; c.counterAxisSizingMode='FIXED'; add(c, await T('▴  '+(eve?'18:00 · Evening':'09:00 · Set out'),{style:'UI/Label', color:HEX.studioWhite})); return; }
     asAL(c,'VERTICAL',{pad:[14,46,12,16], gap:4, w:366, fill: eve?'graphite':'studio'});
     const ink=eve?HEX.studioWhite:HEX.graphite;
     const dashes=AL('HORIZONTAL',{name:'Steps', gap:4}); add(c,dashes); for(let i=0;i<7;i++){ const d=figma.createRectangle(); d.resize(22,3); fillWith(d, i<4?(eve?'silver':'muted'):i===4?(eve?'lamp':'graphite'):'line'); add(dashes,d); }
@@ -301,7 +301,7 @@ async function components(){
   await section('Mobile guide card','On phones the subtitle becomes a closeable card, because a thumb covers the bottom of the scene anyway.', sCard);
 
   // Band
-  const band=async(c,mob)=>{ asAL(c,'HORIZONTAL',{pad:mob?[10,16,10,16]:[0,36,0,36], gap:mob?14:28, cross:'CENTER', fill:'graphite', w:mob?390:1440}); c.counterAxisSizingMode='FIXED'; c.resize(mob?390:1440, mob?112:84);
+  const band=async(c,mob)=>{ asAL(c,'HORIZONTAL',{pad:mob?[10,16,10,16]:[0,36,0,36], gap:mob?14:28, cross:'CENTER', fill:'graphite', w:mob?390:1440}); c.resize(mob?390:1440, mob?112:84); c.primaryAxisSizingMode='FIXED'; c.counterAxisSizingMode='FIXED';
     if(!mob) add(c, svg(SVG.wordmarkEve,120,'Wordmark'));
     const items=mob?['Mat £28','Stand £49','Clips £9','Set £76','Help']:['The desk','Shop','Mat  £28','Stand  £49','Clips  £9','Desk Set  £76','Our approach','Help','Delivery'];
     const links=AL('HORIZONTAL',{name:'Links', gap:mob?12:26, cross:'CENTER'}); add(c,links,{fill:true}); links.primaryAxisAlignItems='CENTER';

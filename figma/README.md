@@ -38,3 +38,7 @@ The colours, type, components and page sheets are real, editable Figma layers. T
 
 ## Changing the text
 Everything is editable once it's in Figma. To change what the plugin writes, edit `plugin-source/code.template.js`. Then ask Claude to rebuild `code.js`, because the build inlines the brand SVGs.
+
+## Already ran the first version? Tidy it
+The first version of this plugin left boards squashed and overlapping in real Figma. The cause: setting a frame's width also locked its height. The builder is fixed now. To repair a file you already made, run `Fold-Supply-Tidy.zip` (the `tidy/` folder) once in that file:
+menu → **Plugins → Development → Import plugin from manifest…** → `tidy/manifest.json`, then run **Fold Supply · Tidy layout** and wait for "Tidy done: 10 pages".
