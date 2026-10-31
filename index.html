@@ -1664,7 +1664,7 @@ function layoutPins(){
     if(b.classList.contains('hide')) continue;
     const x=parseFloat(b.style.left), y=parseFloat(b.style.top), sp=b.firstElementChild;
     sp.style.transform='';
-    if(b.classList.contains('room')&&obstacles.some(o=>x>o.x0-10&&x<o.x1+10&&y>o.y0-10&&y<o.y1+10)){ b.classList.add('hide'); b.tabIndex=-1; continue; }
+    if(b.classList.contains('room')&&(x<12||x>size.w-12||y<12||y>size.h-bandH-12||obstacles.some(o=>x>o.x0-10&&x<o.x1+10&&y>o.y0-10&&y<o.y1+10))){ b.classList.add('hide'); b.tabIndex=-1; continue; }
     const w=sp.offsetWidth, h=sp.offsetHeight;
     const order=[...(PREF[id]||['up','down','right','left'])]; if(placed[id]) order.unshift(placed[id]);
     let best=null, bestScore=1e9;
